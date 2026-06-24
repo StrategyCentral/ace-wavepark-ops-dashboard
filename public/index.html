@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ACE Wave Park — Signal Relay Live Ops</title>
+<style>
+  :root{
+    --bg:#0a0e14;
+    --panel:#121823;
+    --panel-2:#0e141d;
+    --line:#1e2b3a;
+    --text:#e6edf3;
+    --muted:#7d8da3;
+    --live:#2ee6a6;
+    --live-glow:rgba(46,230,166,.55);
+    --dead:#3a4656;
+    --warn:#f0b429;
+    --bad:#ff5d5d;
+    --master:#5ab0ff;
+    --relay:#b78bff;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:radial-gradient(1200px 700px at 70% -10%, #13202e 0%, var(--bg) 55%) fixed;
+    color:var(--text);
+    font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  header{
+    display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+    padding:16px 22px;border-bottom:1px solid var(--line);
+    background:linear-gradient(180deg,rgba(18,24,35,.9),rgba(18,24,35,.4));
+    position:sticky;top:0;z-index:5;backdrop-filter:blur(6px);
+  }
+  header h1{font-size:16px;margin:0;letter-spacing:.3px;font-weight:600}
+  header h1 .dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--live);
+    box-shadow:0 0 10px var(--live-glow);margin-right:8px;vertical-align:middle;animation:pulse 2s infinite}
+  .pills{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto;align-items:center}
+  .pill{font-size:12px;padding:5px 11px;border:1px solid var(--line);border-radius:999px;color:var(--muted);
+    background:var(--panel-2);white-space:nowrap}
+  .pill b{color:var(--text);font-weight:600}
+  .pill.ok{border-color:rgba(46,230,166,.4);color:var(--live)}
+  .pill.warn{border-color:rgba(240,180,41,.4);color:var(--warn)}
+  .pill.bad{border-color:rgba(255,93,93,.4);color:var(--bad)}
+  #updated{font-size:12px;color:var(--muted)}
+
+  .wrap{padding:18px 22px 40px;max-width:1500px;margin:0 auto}
+
+  /* Flow grid: master | relay | users */
+  .flow{position:relative;display:grid;grid-template-columns:230px 150px 1fr;gap:0;align-items:stretch}
+  .col-title{font-size:11px;text-transform:uppercase;letter-spacing:1.4px;color:var(--muted);margin:0 0 12px 2px}
+
+  /* left master node */
+  .master-col{padding-right:8px;display:flex;flex-direction:column}
+  .node-master{
+    background:linear-gradient(160deg,#152232,#101824);
+    border:1px solid rgba(90,176,255,.35);border-radius:14px;padding:16px;
+    box-shadow:0 0 0 1px rgba(90,176,255,.05),0 10px 30px rgba(0,0,0,.35);
+    position:sticky;top:90px;
+  }
+  .node-master .badge{font-size:10px;letter-spacing:1px;color:var(--master);text-transform:uppercase}
+  .node-master h2{margin:6px 0 4px;font-size:18px}
+  .node-master .sub{color:var(--muted);font-size:12px}
+  .mstat{display:flex;justify-content:space-between;margin-top:12px;font-size:12px;color:var(--muted);
+    border-top:1px solid var(--line);padding-top:10px}
+  .mstat b{color:var(--text)}
+
+  /* relay middle */
+  .relay-col{display:flex;flex-direction:column;align-items:center}
+  .node-relay{
+    position:sticky;top:90px;text-align:center;
+    background:linear-gradient(160deg,#1d1730,#140f22);
+    border:1px solid rgba(183,139,255,.4);border-radius:14px;padding:18px 14px;width:100%;
+    box-shadow:0 10px 30px rgba(0,0,0,.35);
+  }
+  .node-relay .ring{width:54px;height:54px;border-radius:50%;margin:0 auto 10px;
+    border:2px solid var(--relay);display:flex;align-items:center;justify-content:center;
+    box-shadow:0 0 18px rgba(183,139,255,.4);animation:spin 6s linear infinite}
+  .node-relay .ring::before{content:"";width:10px;height:10px;border-radius:50%;background:var(--relay);
+    box-shadow:0 0 12px var(--relay)}
+  .node-relay h3{margin:0;font-size:14px}
+  .node-relay .sub{font-size:11px;color:var(--muted);margin-top:4px}
+  .relay-state{margin-top:10px;font-size:12px;font-weight:600}
+
+  /* users */
+  .users-col{padding-left:8px}
+  .users{display:flex;flex-direction:column;gap:10px}
+  .urow{
+    display:grid;grid-template-columns:1fr auto;gap:14px;align-items:center;
+    background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;
+    position:relative;transition:border-color .3s,transform .15s;
+  }
+  .urow:hover{transform:translateX(2px)}
+  .urow.live{border-color:rgba(46,230,166,.35)}
+  .urow.stale{border-color:rgba(240,180,41,.3)}
+  .uname{font-weight:600;font-size:14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .uname .lic{font-size:11px;color:var(--muted);font-weight:400;background:var(--panel-2);
+    border:1px solid var(--line);padding:1px 7px;border-radius:6px;font-family:ui-monospace,Menlo,monospace}
+  .umeta{display:flex;gap:16px;flex-wrap:wrap;margin-top:7px;font-size:12px;color:var(--muted)}
+  .umeta span b{color:var(--text);font-weight:500}
+  .flags{display:flex;gap:8px;align-items:center}
+  .flag{font-size:11px;padding:3px 9px;border-radius:999px;border:1px solid var(--line);
+    color:var(--muted);white-space:nowrap;display:flex;align-items:center;gap:5px}
+  .flag .d{width:7px;height:7px;border-radius:50%;background:var(--dead)}
+  .flag.yes{color:var(--live);border-color:rgba(46,230,166,.4)}
+  .flag.yes .d{background:var(--live);box-shadow:0 0 8px var(--live-glow)}
+  .flag.no{color:var(--bad);border-color:rgba(255,93,93,.35)}
+  .flag.no .d{background:var(--bad)}
+
+  /* SVG cables overlay */
+  #cables{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0}
+  .flow > *{position:relative;z-index:1}
+  .cable{fill:none;stroke:var(--dead);stroke-width:2;opacity:.5}
+  .cable.live{stroke:var(--live);stroke-width:2.2;opacity:.9;filter:drop-shadow(0 0 4px var(--live-glow))}
+  .cable.stale{stroke:var(--warn);opacity:.7}
+  .pulse{fill:var(--live);filter:drop-shadow(0 0 5px var(--live-glow))}
+
+  .empty{padding:40px;text-align:center;color:var(--muted)}
+  .footnote{margin-top:22px;font-size:11px;color:var(--muted);text-align:center}
+  a{color:var(--master)}
+
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @keyframes flow{to{stroke-dashoffset:-24}}
+  .cable.live{stroke-dasharray:6 6;animation:flow 1s linear infinite}
+
+  @media(max-width:860px){
+    .flow{grid-template-columns:1fr}
+    #cables{display:none}
+    .node-master,.node-relay{position:static;margin-bottom:14px}
+    .relay-col{margin-bottom:14px}
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="dot"></span>ACE Wave Park — Signal Relay Live Ops</h1>
+  <div class="pills">
+    <span class="pill" id="p-health">Licensing: …</span>
+    <span class="pill" id="p-relay">Relay: …</span>
+    <span class="pill" id="p-users">Users: …</span>
+    <span class="pill" id="p-live">Live: …</span>
+    <span class="pill" id="updated">updating…</span>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="flow" id="flow">
+    <svg id="cables" preserveAspectRatio="none"></svg>
+
+    <!-- MASTER -->
+    <div class="master-col">
+      <p class="col-title">Master</p>
+      <div class="node-master" id="masterNode">
+        <div class="badge">MASTERTESTER · SKIMBOARD</div>
+        <h2>Signal Master</h2>
+        <div class="sub">Source of truth — emits trade signals</div>
+        <div class="mstat"><span>Strategies</span><b id="m-strats">—</b></div>
+        <div class="mstat"><span>Last master seen</span><b id="m-seen">—</b></div>
+      </div>
+    </div>
+
+    <!-- RELAY -->
+    <div class="relay-col">
+      <p class="col-title">Relay</p>
+      <div class="node-relay" id="relayNode">
+        <div class="ring"></div>
+        <h3>ACE Relay</h3>
+        <div class="sub">fan-out broker</div>
+        <div class="relay-state" id="relayState">checking…</div>
+      </div>
+    </div>
+
+    <!-- USERS -->
+    <div class="users-col">
+      <p class="col-title">Subscribers · BoardShop children</p>
+      <div class="users" id="users"><div class="empty">Loading subscribers…</div></div>
+    </div>
+  </div>
+
+  <div class="footnote">
+    Read-only ops view · auto-refresh every 10s · no writes to any service.
+    Data: licensing <code>/api/groups</code> + relay <code>/stats</code>.
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  // ---- config ----
+  var LIC = "https://ace-wave-park-licensing-production.up.railway.app";
+  var RELAY = "https://ace-relay-production.up.railway.app";
+  var REFRESH = 10000;
+  var STALE_MS = 15 * 60 * 1000;   // >15m since last_seen => stale
+  var DEAD_MS  = 24 * 60 * 60 * 1000; // >24h => disconnected
+
+  var $ = function(id){ return document.getElementById(id); };
+  function cb(){ return "_=" + Date.now(); }
+
+  function fmtAgo(iso){
+    if(!iso) return "never";
+    var t = new Date(iso).getTime();
+    if(isNaN(t)) return "n/a";
+    var s = Math.floor((Date.now()-t)/1000);
+    if(s<0) s=0;
+    if(s<60) return s+"s ago";
+    if(s<3600) return Math.floor(s/60)+"m ago";
+    if(s<86400) return Math.floor(s/3600)+"h ago";
+    return Math.floor(s/86400)+"d ago";
+  }
+  function age(iso){
+    if(!iso) return Infinity;
+    var t = new Date(iso).getTime();
+    return isNaN(t) ? Infinity : Date.now()-t;
+  }
+
+  // Fetch JSON; on any failure return {__err:true}
+  function getJSON(url){
+    return fetch(url, {cache:"no-store"})
+      .then(function(r){
+        if(!r.ok) return {__err:true, status:r.status};
+        var ct = r.headers.get("content-type")||"";
+        if(ct.indexOf("application/json")===-1){
+          return r.text().then(function(txt){ return {__text:txt}; });
+        }
+        return r.json();
+      })
+      .catch(function(){ return {__err:true}; });
+  }
+
+  // Parse relay /stats which may be (a) per-group JSON, (b) plain text "ACE Relay: OK", or (c) 404
+  function parseRelay(raw){
+    var out = { up:false, byGroup:{}, uptime:null, raw:raw, hasGroups:false };
+    if(!raw || raw.__err){ out.reason = raw && raw.status===404 ? "no /stats endpoint" : "unreachable"; return out; }
+    if(raw.__text !== undefined){
+      // text health string — relay alive but no per-group JSON yet
+      out.up = /ok/i.test(raw.__text);
+      out.reason = out.up ? "online (no per-group stats yet)" : "responded";
+      out.textOnly = true;
+      return out;
+    }
+    // JSON shape (observed): {uptimeSeconds, serverStartedAt,
+    //   groups:[{group,children,masters,lastMessageAt,messagesToday}]}
+    // Also tolerate {uptime} as an alias.
+    out.up = true;
+    out.uptime = (raw.uptimeSeconds != null) ? raw.uptimeSeconds
+               : (raw.uptime != null ? raw.uptime : null);
+    var groups = Array.isArray(raw.groups) ? raw.groups : [];
+    var totChildren = 0, totMasters = 0;
+    groups.forEach(function(g){
+      if(g && g.group) out.byGroup[g.group] = g;
+      if(g && typeof g.children === "number") totChildren += g.children;
+      if(g && typeof g.masters === "number") totMasters += g.masters;
+    });
+    out.totChildren = totChildren;
+    out.totMasters = totMasters;
+    out.reason = "online";
+    out.hasGroups = groups.length>0;
+    return out;
+  }
+
+  // ---- render ----
+  var lastUsers = [];
+
+  function render(skim, master, relay, health){
+    // header pills
+    if(health && !health.__err && health.status){
+      $("p-health").className = "pill ok";
+      $("p-health").innerHTML = "Licensing <b>OK</b> · "+(health.licenses!=null?health.licenses+" lic":"");
+    } else {
+      $("p-health").className = "pill bad";
+      $("p-health").textContent = "Licensing unreachable";
+    }
+
+    if(relay.up){
+      $("p-relay").className = relay.hasGroups ? "pill ok" : "pill warn";
+      if(relay.hasGroups){
+        $("p-relay").innerHTML = "Relay <b>live</b> · "+relay.totChildren+" child / "+relay.totMasters+" master";
+        $("relayState").textContent = relay.totChildren+" children · "+relay.totMasters+" masters connected";
+      } else {
+        $("p-relay").innerHTML = "Relay <b>online</b>";
+        $("relayState").textContent = relay.reason;
+      }
+      $("relayState").style.color = relay.hasGroups ? "var(--live)" : "var(--warn)";
+      $("relayNode").style.opacity = "1";
+    } else {
+      $("p-relay").className = "pill bad";
+      $("p-relay").innerHTML = "Relay <b>down</b>";
+      $("relayState").textContent = "relay stats unavailable";
+      $("relayState").style.color = "var(--bad)";
+      $("relayNode").style.opacity = ".55";
+    }
+
+    // build user rows from SKIMBOARD groups, joined to master + relay
+    var skimGroups = (skim && skim.groups) ? skim.groups : [];
+    var masterByLicense = {};
+    ((master && master.groups) || []).forEach(function(g){ masterByLicense[g.license_key] = g; });
+
+    // master node summary
+    $("m-strats").textContent = (skim&&skim.strategy?skim.strategy:"SKIMBOARD")+" + MASTERTESTER";
+    var newestMaster = null;
+    ((master && master.groups)||[]).forEach(function(g){
+      if(!newestMaster || age(g.last_seen) < age(newestMaster)) newestMaster = g.last_seen;
+    });
+    $("m-seen").textContent = fmtAgo(newestMaster);
+
+    var liveCount = 0;
+    var haveRelayJson = relay.hasGroups; // relay /stats returned per-group data
+    var rows = skimGroups.map(function(g){
+      var rstat = relay.byGroup[g.group] || null;
+      var a = age(g.last_seen);
+
+      // Child connection truth:
+      //  - If relay reports per-group stats, a live WebSocket child (children>0) is authoritative
+      //    REGARDLESS of last_seen (validation is periodic; the WS link is persistent).
+      //  - Otherwise fall back to licensing last_seen freshness.
+      var childConnected;
+      if(rstat && typeof rstat.children === "number"){
+        childConnected = rstat.children > 0;
+      } else {
+        childConnected = a < STALE_MS;
+      }
+      var inGroup = !!masterByLicense[g.license_key]; // present in MASTERTESTER => paired/eligible
+
+      // State for cable/row colour:
+      //  live  = relay child connected now (or, without relay json, validated recently)
+      //  stale = no live child but validated in last 24h
+      //  dead  = otherwise
+      var state;
+      if(haveRelayJson){
+        state = childConnected ? "live" : (a < DEAD_MS ? "stale" : "dead");
+      } else {
+        state = (a < STALE_MS) ? "live" : (a < DEAD_MS ? "stale" : "dead");
+      }
+      if(state==="live") liveCount++;
+
+      var lastSignal = rstat && rstat.lastMessageAt ? rstat.lastMessageAt : null;
+      return {
+        group:g.group, license:g.license_key, inGroup:inGroup,
+        childConnected:childConnected, lastSeen:g.last_seen,
+        lastSignal:lastSignal, msgsToday: rstat?rstat.messagesToday:null,
+        state:state
+      };
+    });
+
+    lastUsers = rows;
+
+    // header counts
+    $("p-users").innerHTML = "Users <b>"+rows.length+"</b>";
+    $("p-live").className = liveCount>0 ? "pill ok":"pill warn";
+    $("p-live").innerHTML = "Live <b>"+liveCount+"</b>/"+rows.length;
+
+    // render rows
+    var host = $("users");
+    if(!rows.length){ host.innerHTML = '<div class="empty">No subscribers returned by /api/groups.</div>'; }
+    else {
+      host.innerHTML = rows.map(function(r,i){
+        var shortId = r.group.replace(/^skimboard-/,"");
+        var inG = r.inGroup ? "yes":"no";
+        var cc  = r.childConnected ? "yes":"no";
+        return ''+
+        '<div class="urow '+r.state+'" data-i="'+i+'" id="urow-'+i+'">'+
+          '<div>'+
+            '<div class="uname">'+ (escapeHtml(r.license)||"—") +
+              ' <span class="lic">'+escapeHtml(shortId)+'</span></div>'+
+            '<div class="umeta">'+
+              '<span>Last validation: <b>'+fmtAgo(r.lastSeen)+'</b></span>'+
+              '<span>Last signal: <b>'+(r.lastSignal?fmtAgo(r.lastSignal):"—")+'</b></span>'+
+              (r.msgsToday!=null?'<span>Msgs today: <b>'+r.msgsToday+'</b></span>':'')+
+            '</div>'+
+          '</div>'+
+          '<div class="flags">'+
+            '<span class="flag '+inG+'"><span class="d"></span>in-group</span>'+
+            '<span class="flag '+cc+'"><span class="d"></span>child</span>'+
+          '</div>'+
+        '</div>';
+      }).join("");
+    }
+
+    drawCables(rows, relay.up);
+    $("updated").textContent = "updated " + new Date().toLocaleTimeString();
+  }
+
+  function escapeHtml(s){
+    if(s==null) return "";
+    return String(s).replace(/[&<>"']/g,function(c){
+      return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
+    });
+  }
+
+  // ---- cables overlay ----
+  function drawCables(rows, relayUp){
+    var svg = $("cables");
+    var flow = $("flow");
+    if(!svg || !flow) return;
+    var fr = flow.getBoundingClientRect();
+    var W = flow.clientWidth, H = flow.clientHeight;
+    svg.setAttribute("viewBox","0 0 "+W+" "+H);
+    svg.setAttribute("width",W); svg.setAttribute("height",H);
+
+    var mB = $("masterNode").getBoundingClientRect();
+    var rB = $("relayNode").getBoundingClientRect();
+    var mx = mB.right - fr.left, my = mB.top - fr.top + mB.height/2;
+    var rlx = rB.left - fr.left, rly = rB.top - fr.top + rB.height/2;
+    var rrx = rB.right - fr.left;
+
+    var parts = [];
+    // master -> relay (single trunk)
+    var trunkCls = relayUp ? "cable live" : "cable";
+    parts.push(curve(mx,my,rlx,rly,trunkCls,"trunk"));
+
+    // relay -> each user
+    rows.forEach(function(r,i){
+      var el = $("urow-"+i);
+      if(!el) return;
+      var b = el.getBoundingClientRect();
+      var uy = b.top - fr.top + b.height/2;
+      var ux = b.left - fr.left;
+      var cls = "cable";
+      if(r.state==="live") cls = "cable live";
+      else if(r.state==="stale") cls = "cable stale";
+      parts.push(curve(rrx,rly,ux,uy,cls,"u"+i));
+    });
+
+    svg.innerHTML = parts.join("");
+  }
+
+  function curve(x1,y1,x2,y2,cls,id){
+    var midx = (x1+x2)/2;
+    var d = "M "+x1+" "+y1+" C "+midx+" "+y1+", "+midx+" "+y2+", "+x2+" "+y2;
+    var path = '<path id="p-'+id+'" class="'+cls+'" d="'+d+'"/>';
+    if(cls.indexOf("live")>-1){
+      path += '<circle r="3.2" class="pulse">'+
+        '<animateMotion dur="1.6s" repeatCount="indefinite">'+
+        '<mpath href="#p-'+id+'"/></animateMotion></circle>';
+    }
+    return path;
+  }
+
+  // ---- poll loop ----
+  function tick(){
+    Promise.all([
+      getJSON(LIC + "/api/groups?strategy=SKIMBOARD&" + cb()),
+      getJSON(LIC + "/api/groups?strategy=MASTERTESTER&" + cb()),
+      getJSON(RELAY + "/stats?" + cb()),
+      getJSON(LIC + "/health?" + cb())
+    ]).then(function(res){
+      var skim = res[0].__err ? {groups:[]} : res[0];
+      var master = res[1].__err ? {groups:[]} : res[1];
+      var relay = parseRelay(res[2]);
+      var health = res[3];
+      render(skim, master, relay, health);
+    }).catch(function(){
+      $("updated").textContent = "fetch error — retrying";
+    });
+  }
+
+  window.addEventListener("resize", function(){ drawCables(lastUsers, true); });
+  tick();
+  setInterval(tick, REFRESH);
+})();
+</script>
+</body>
+</html>
