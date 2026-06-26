@@ -99,6 +99,9 @@
   .uname .lic{font-size:11px;color:var(--muted);font-weight:400;background:var(--panel-2);
     border:1px solid var(--line);padding:1px 7px;border-radius:6px;font-family:ui-monospace,Menlo,monospace}
   .umeta{display:flex;gap:16px;flex-wrap:wrap;margin-top:7px;font-size:12px;color:var(--muted)}
+  .umeta.usub{margin-top:3px}
+  .licfull{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--muted);
+    background:var(--panel-2);border:1px solid var(--line);padding:1px 7px;border-radius:6px}
   .umeta span b{color:var(--text);font-weight:500}
   .flags{display:flex;gap:8px;align-items:center}
   .flag{font-size:11px;padding:3px 9px;border-radius:999px;border:1px solid var(--line);
@@ -264,7 +267,7 @@
   // ---- render ----
   var lastUsers = [];
 
-  function render(skim, master, relay, health){
+  function render(skim, master, relay, health, names){
     // header pills
     if(health && !health.__err && health.status){
       $("p-health").className = "pill ok";
@@ -360,11 +363,20 @@
         var shortId = r.group.replace(/^skimboard-/,"");
         var inG = r.inGroup ? "yes":"no";
         var cc  = r.childConnected ? "yes":"no";
+        // Discord name (label) from /names, keyed by relay group id. Fallback to license.
+        var nm = names && names[r.group] ? names[r.group] : null;
+        var label = nm && nm.label ? nm.label : null;
+        var primary = label ? escapeHtml(label) : (escapeHtml(r.license)||"—");
+        // When we have a name, show the masked license as a secondary detail line.
+        var licLine = label
+          ? '<div class="umeta usub"><span class="licfull">'+(escapeHtml(r.license)||"—")+'</span></div>'
+          : '';
         return ''+
         '<div class="urow '+r.state+'" data-i="'+i+'" id="urow-'+i+'">'+
           '<div>'+
-            '<div class="uname">'+ (escapeHtml(r.license)||"—") +
+            '<div class="uname">'+ primary +
               ' <span class="lic">'+escapeHtml(shortId)+'</span></div>'+
+            licLine+
             '<div class="umeta">'+
               '<span>Last validation: <b>'+fmtAgo(r.lastSeen)+'</b></span>'+
               '<span>Last signal: <b>'+(r.lastSignal?fmtAgo(r.lastSignal):"—")+'</b></span>'+
@@ -445,13 +457,15 @@
       getJSON(LIC + "/api/groups?strategy=SKIMBOARD&" + cb()),
       getJSON(LIC + "/api/groups?strategy=MASTERTESTER&" + cb()),
       getJSON(RELAY + "/stats?" + cb()),
-      getJSON(LIC + "/health?" + cb())
+      getJSON(LIC + "/health?" + cb()),
+      getJSON("/names?" + cb())
     ]).then(function(res){
       var skim = res[0].__err ? {groups:[]} : res[0];
       var master = res[1].__err ? {groups:[]} : res[1];
       var relay = parseRelay(res[2]);
       var health = res[3];
-      render(skim, master, relay, health);
+      var names = (res[4] && !res[4].__err && typeof res[4] === "object") ? res[4] : {};
+      render(skim, master, relay, health, names);
     }).catch(function(){
       $("updated").textContent = "fetch error — retrying";
     });
