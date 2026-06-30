@@ -1,5 +1,8 @@
 // ACE Wave Park — Signal Relay Live Ops Dashboard
-// Read-only static server. Serves /public. No upstream writes, no proxying of mutations.
+// Read-only. Serves /public + two server-side Hub proxies:
+//   /names   relay GROUP IDs -> Discord display names      (Hub: hub_licenses + profiles)
+//   /trades  relay GROUP IDs -> real fills (entry/exit/PnL) (Hub: bot_events telemetry)
+// No upstream writes. The Hub management token is read from the environment, never committed.
 const express = require("express");
 const path = require("path");
 const crypto = require("crypto");
@@ -7,129 +10,124 @@ const crypto = require("crypto");
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Static dashboard (the page calls the licensing + relay APIs directly from the browser).
-app.use(
-  express.static(path.join(__dirname, "public"), {
-    etag: false,
-    setHeaders(res) {
-      res.setHeader("Cache-Control", "no-store, max-age=0");
-    },
-  })
-);
+// ── Customer Hub Supabase (source of Discord names + bot_events trade telemetry) ──
+// Railway env vars (NOT committed — repo is public):
+//   HUB_MGMT_TOKEN   Supabase management token (sbp_...)
+//   HUB_PROJECT_REF  Hub project ref (default below)
+const HUB_TOKEN = process.env.HUB_MGMT_TOKEN || "";
+const HUB_REF = process.env.HUB_PROJECT_REF || "ecsabdrcoiivtgnoemux";
+const PREFIXES = ["skimboard", "mastertester"];
 
-// ---------------------------------------------------------------------------
-// /names — read-only map of relay group id -> { label, email }
-//
-// Source: the Hub Supabase project (active licenses joined to profiles), queried
-// via the Supabase Management API. The token is read from process.env.HUB_MGMT_TOKEN
-// and is NEVER committed (this repo is public). Result is cached in memory for 60s
-// so the Hub is not hit on every dashboard refresh. On any failure we return {} so
-// the dashboard still renders without names.
-// ---------------------------------------------------------------------------
-const HUB_PROJECT_REF = "ecsabdrcoiivtgnoemux";
-const HUB_QUERY =
-  "select l.license_key, p.discord_display_name, p.discord_username, " +
-  "p.full_name, p.first_name, p.email " +
+// group id = "<prefix>-" + sha256(licenseKey + prefix) first 12 hex (verified against live data)
+function groupId(licenseKey, prefix) {
+  return prefix + "-" + crypto.createHash("sha256").update(licenseKey + prefix).digest("hex").slice(0, 12);
+}
+function bothGroups(licenseKey) {
+  return PREFIXES.map((p) => groupId(licenseKey, p));
+}
+
+async function hubQuery(sql) {
+  const r = await fetch(`https://api.supabase.com/v1/projects/${HUB_REF}/database/query`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${HUB_TOKEN}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ query: sql }),
+  });
+  if (!r.ok) throw new Error("hub " + r.status);
+  return r.json(); // array of rows
+}
+
+// 60s cache wrapper
+function cached(ttl) {
+  let at = 0, data = null, inflight = null;
+  return async function (producer) {
+    if (data && Date.now() - at < ttl) return data;
+    if (inflight) return inflight;
+    inflight = producer()
+      .then((d) => { data = d; at = Date.now(); inflight = null; return d; })
+      .catch((e) => { inflight = null; throw e; });
+    return inflight;
+  };
+}
+
+// ── /names ──────────────────────────────────────────────────────────────────
+const NAMES_SQL =
+  process.env.NAMES_SQL ||
+  "select l.license_key as license_key, " +
+  "coalesce(nullif(p.discord_display_name,''), nullif(p.discord_username,''), nullif(p.full_name,'')) as discord_name " +
   "from hub_licenses l join profiles p on p.id = l.user_id " +
-  "where l.status = 'active';";
-const STRATEGIES = ["SKIMBOARD", "MASTERTESTER"];
-const NAMES_TTL_MS = 60 * 1000;
+  "where coalesce(nullif(p.discord_display_name,''), nullif(p.discord_username,''), nullif(p.full_name,'')) is not null";
 
-let namesCache = { ts: 0, data: {} };
-
-// Relay group id for (licenseKey, strategy) — VERIFIED to match the live /api/groups.
-function groupId(licenseKey, strategy) {
-  const prefix = String(strategy).toLowerCase().replace(/[^a-z0-9]/g, "");
-  const h = crypto
-    .createHash("sha256")
-    .update(licenseKey + prefix)
-    .digest("hex");
-  return prefix + "-" + h.substring(0, 12);
+const namesCache = cached(60000);
+async function buildNames() {
+  if (!HUB_TOKEN) return { groups: {}, count: 0, source: "no HUB_MGMT_TOKEN set" };
+  const rows = await hubQuery(NAMES_SQL);
+  const groups = {};
+  (rows || []).forEach((row) => {
+    const key = row.license_key, name = row.discord_name;
+    if (key && name) bothGroups(key).forEach((g) => (groups[g] = name));
+  });
+  return { groups, count: Object.keys(groups).length, source: "hub" };
 }
-
-// First non-empty of: discord_display_name -> discord_username -> full_name
-// -> first_name -> email local-part.
-function pickLabel(row) {
-  const candidates = [
-    row.discord_display_name,
-    row.discord_username,
-    row.full_name,
-    row.first_name,
-  ];
-  for (const c of candidates) {
-    if (c && String(c).trim()) return String(c).trim();
-  }
-  if (row.email && String(row.email).indexOf("@") > -1) {
-    return String(row.email).split("@")[0];
-  }
-  return null;
-}
-
-async function fetchNamesFromHub() {
-  const token = process.env.HUB_MGMT_TOKEN;
-  if (!token) {
-    console.warn("[ops-dashboard] HUB_MGMT_TOKEN not set — /names returns {}");
-    return {};
-  }
-  const res = await fetch(
-    "https://api.supabase.com/v1/projects/" + HUB_PROJECT_REF + "/database/query",
-    {
-      method: "POST",
-      headers: {
-        Authorization: "Bearer " + token,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ query: HUB_QUERY }),
-    }
-  );
-  if (!res.ok) {
-    throw new Error("Hub query HTTP " + res.status);
-  }
-  const rows = await res.json();
-  if (!Array.isArray(rows)) {
-    throw new Error("Hub query returned non-array");
-  }
-  const map = {};
-  for (const row of rows) {
-    if (!row || !row.license_key) continue;
-    const entry = { label: pickLabel(row), email: row.email || null };
-    // A user appears under both strategies — map every group id to the same record.
-    for (const strat of STRATEGIES) {
-      map[groupId(row.license_key, strat)] = entry;
-    }
-  }
-  return map;
-}
-
 app.get("/names", async (_req, res) => {
-  res.setHeader("Cache-Control", "no-store, max-age=0");
-  const now = Date.now();
-  if (namesCache.data && now - namesCache.ts < NAMES_TTL_MS) {
-    return res.json(namesCache.data);
-  }
-  try {
-    const data = await fetchNamesFromHub();
-    namesCache = { ts: now, data };
-    return res.json(data);
-  } catch (err) {
-    console.error("[ops-dashboard] /names error:", err && err.message);
-    // Serve a stale cache if we have one; otherwise empty so the page still renders.
-    if (namesCache.data && Object.keys(namesCache.data).length) {
-      return res.json(namesCache.data);
-    }
-    return res.json({});
-  }
+  res.set("Cache-Control", "no-store");
+  try { res.json(await namesCache(buildNames)); }
+  catch (e) { res.json({ groups: {}, count: 0, source: "error: " + e.message }); }
 });
 
-// Simple health endpoint for Railway / uptime checks.
-app.get("/healthz", (_req, res) => {
-  res.json({ status: "ok", service: "wavepark-ops-dashboard", ts: new Date().toISOString() });
+// ── /trades  (real fills from Hub bot_events) ─────────────────────────────────
+const TRADES_SQL =
+  "with last_ev as (" +
+  "  select distinct on (license_key) license_key, event_type, action, price, pnl, occurred_at" +
+  "  from bot_events order by license_key, occurred_at desc)," +
+  "agg as (" +
+  "  select license_key," +
+  "    count(*) filter (where event_type='exit' and occurred_at >= now() - interval '24 hours') as exits_24h," +
+  "    coalesce(sum(pnl) filter (where occurred_at >= now() - interval '24 hours'),0) as pnl_24h," +
+  "    coalesce(sum(case when event_type='exit' and pnl>0 and occurred_at >= now() - interval '24 hours' then 1 else 0 end),0) as wins_24h" +
+  "  from bot_events group by 1)" +
+  "select l.license_key, l.event_type as last_type, l.action as last_action, l.price as last_price," +
+  "       l.pnl as last_pnl, l.occurred_at as last_at," +
+  "       coalesce(a.exits_24h,0) as exits_24h, coalesce(a.pnl_24h,0) as pnl_24h, coalesce(a.wins_24h,0) as wins_24h " +
+  "from last_ev l left join agg a using (license_key)";
+
+const tradesCache = cached(60000);
+async function buildTrades() {
+  if (!HUB_TOKEN) return { groups: {}, count: 0, source: "no HUB_MGMT_TOKEN set" };
+  const rows = await hubQuery(TRADES_SQL);
+  const groups = {};
+  (rows || []).forEach((row) => {
+    const key = row.license_key;
+    if (!key) return;
+    const rec = {
+      lastType: row.last_type, lastAction: row.last_action,
+      lastPrice: row.last_price != null ? Number(row.last_price) : null,
+      lastPnl: row.last_pnl != null ? Number(row.last_pnl) : null,
+      lastAt: row.last_at,
+      exits24h: Number(row.exits_24h) || 0,
+      pnl24h: Number(row.pnl_24h) || 0,
+      wins24h: Number(row.wins_24h) || 0,
+    };
+    bothGroups(key).forEach((g) => (groups[g] = rec));
+  });
+  return { groups, count: Object.keys(groups).length, source: "hub" };
+}
+app.get("/trades", async (_req, res) => {
+  res.set("Cache-Control", "no-store");
+  try { res.json(await tradesCache(buildTrades)); }
+  catch (e) { res.json({ groups: {}, count: 0, source: "error: " + e.message }); }
 });
 
-app.get("/", (_req, res) => {
-  res.sendFile(path.join(__dirname, "public", "index.html"));
-});
+// Static dashboard (the page also calls the licensing + relay APIs directly).
+app.use(express.static(path.join(__dirname, "public"), {
+  etag: false,
+  setHeaders(res) { res.setHeader("Cache-Control", "no-store, max-age=0"); },
+}));
 
-app.listen(PORT, () => {
-  console.log(`[ops-dashboard] listening on :${PORT}`);
-});
+app.get("/healthz", (_req, res) =>
+  res.json({ status: "ok", service: "wavepark-ops-dashboard", hubNames: !!HUB_TOKEN, ts: new Date().toISOString() })
+);
+app.get("/", (_req, res) => res.sendFile(path.join(__dirname, "public", "index.html")));
+
+app.listen(PORT, () =>
+  console.log(`[ops-dashboard] listening on :${PORT}  (hub: ${HUB_TOKEN ? "enabled" : "DISABLED — set HUB_MGMT_TOKEN"})`)
+);
