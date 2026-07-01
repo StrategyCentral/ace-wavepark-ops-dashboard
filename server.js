@@ -83,7 +83,7 @@ const RECENT_SQL =
   "to_char(e.occurred_at at time zone 'America/New_York','Mon DD, HH12:MI AM') as est, e.occurred_at, " +
   "row_number() over (partition by e.license_key order by e.occurred_at desc) rn " +
   "from bot_events e left join bot_status s on s.license_key=e.license_key and s.hardware_id=e.hardware_id" +
-  ") t where t.rn <= 6 order by t.license_key, t.occurred_at desc";
+  ") t where t.rn <= 12 order by t.license_key, t.occurred_at desc";
 
 const AGG_SQL =
   "select e.license_key, coalesce(s.strategy,'?') as strat, " +

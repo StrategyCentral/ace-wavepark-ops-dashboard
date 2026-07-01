@@ -93,7 +93,8 @@
   .pnl .lab{font-weight:700;letter-spacing:.4px}
   .pnl.skim .lab{color:var(--skim)} .pnl.test .lab{color:var(--test)}
   .pnl .v.pos{color:var(--pos)} .pnl .v.neg{color:var(--neg)}
-  .recent{margin-top:9px;display:flex;flex-wrap:wrap;gap:6px}
+  .recent{margin-top:9px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  .rlab{font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);opacity:.65;margin-right:2px}
   .rt{font-size:10.5px;color:var(--muted);font-family:ui-monospace,Menlo,monospace;background:var(--panel-2);
     border:1px solid var(--line);border-radius:6px;padding:2px 7px;white-space:nowrap}
   .rt .g{color:var(--pos)} .rt .r{color:var(--neg)}
@@ -311,31 +312,34 @@
       lastHtml='<span class="took">last signal: '+r.lastFeed+' · '+estOf(r.lastSignal)+'</span>';
     }
 
-    // per-strategy 24h P&L chips
+    // per-strategy 24h P&L chip(s) — label "24h" when single strat (strat shown in badge), else the name
     var pnlHtml="";
     if(r.trade&&r.trade.byStrat){
-      Object.keys(r.trade.byStrat).forEach(function(s){
-        var b=r.trade.byStrat[s];if(!b||b.trades===0)return;
-        var pos=b.pnl>=0;
-        pnlHtml+='<span class="pnl '+stratClass(s)+'"><span class="lab">'+esc(s)+'</span>'+
+      var strats=Object.keys(r.trade.byStrat).filter(function(s){return r.trade.byStrat[s].trades>0;});
+      strats.forEach(function(s){
+        var b=r.trade.byStrat[s];var pos=b.pnl>=0;var lab=strats.length>1?esc(s):"24h";
+        pnlHtml+='<span class="pnl '+stratClass(s)+'"><span class="lab">'+lab+'</span>'+
           '<span>'+b.trades+'T · '+b.wins+'W</span><span class="v '+(pos?"pos":"neg")+'">'+money(b.pnl)+'</span></span>';
       });
     }
 
-    // recent trades strip (ET + pnl)
+    // recent RESULTS — completed trades only (exits w/ P&L), tidy
     var recentHtml="";
     if(r.trade&&r.trade.recent&&r.trade.recent.length){
-      recentHtml='<div class="recent">'+r.trade.recent.slice(0,5).map(function(t){
-        var tm=(t.est||"").replace(/^[A-Za-z]{3} \d+, /,"").replace(" ET","");
-        if(t.type==="exit"){var g=t.pnl>=0;return '<span class="rt">'+esc(tm)+' <span class="'+(g?"g":"r")+'">'+(t.pnl!=null?money(t.pnl):(/target/i.test(t.action||"")?"TP":"SL"))+'</span></span>';}
-        return '<span class="rt">'+esc(tm)+' '+esc((t.action||"").toUpperCase())+(t.price!=null?" @"+t.price:"")+'</span>';
-      }).join("")+'</div>';
+      var exits=r.trade.recent.filter(function(t){return t.type==="exit";}).slice(0,4);
+      if(exits.length){
+        recentHtml='<div class="recent"><span class="rlab">last '+exits.length+'</span>'+exits.map(function(t){
+          var tm=(t.est||"").replace(/^[A-Za-z]{3} \d+, /,"").replace(" ET","");
+          var g=t.pnl>=0;
+          return '<span class="rt">'+esc(tm)+' <span class="'+(g?"g":"r")+'">'+(t.pnl!=null?money(t.pnl):(/target/i.test(t.action||"")?"TP":"SL"))+'</span></span>';
+        }).join("")+'</div>';
+      }
     }
 
     return ''+
     '<div class="urow '+r.state+'" id="urow-'+i+'">'+
       '<div>'+
-        '<div class="uname"><span'+nameCls+'>'+display+'</span>'+stratBadge+'<span class="gid">'+esc(r.gidShort)+'</span></div>'+
+        '<div class="uname"><span'+nameCls+'>'+display+'</span>'+stratBadge+(r.name?'':'<span class="gid">'+esc(r.gidShort)+'</span>')+'</div>'+
         '<div class="umeta">'+lastHtml+pnlHtml+'</div>'+
         recentHtml+
       '</div>'+
