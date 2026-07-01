@@ -50,12 +50,14 @@ function cached(ttl) {
 }
 
 // ── /names ──────────────────────────────────────────────────────────────────
+// PUBLIC-SAFE: only ever expose a Discord HANDLE (display name / username) — NEVER the real
+// full_name (PII). Users without a Discord handle get no name and show as an anonymized group id.
 const NAMES_SQL =
   process.env.NAMES_SQL ||
   "select l.license_key as license_key, " +
-  "coalesce(nullif(p.discord_display_name,''), nullif(p.discord_username,''), nullif(p.full_name,'')) as discord_name " +
+  "coalesce(nullif(p.discord_display_name,''), nullif(p.discord_username,'')) as discord_name " +
   "from hub_licenses l join profiles p on p.id = l.user_id " +
-  "where coalesce(nullif(p.discord_display_name,''), nullif(p.discord_username,''), nullif(p.full_name,'')) is not null";
+  "where coalesce(nullif(p.discord_display_name,''), nullif(p.discord_username,'')) is not null";
 
 const namesCache = cached(60000);
 async function buildNames() {
