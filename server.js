@@ -75,39 +75,50 @@ app.get("/names", async (_req, res) => {
 });
 
 // ── /trades  (real fills from Hub bot_events) ─────────────────────────────────
-const TRADES_SQL =
-  "with last_ev as (" +
-  "  select distinct on (license_key) license_key, event_type, action, price, pnl, occurred_at" +
-  "  from bot_events order by license_key, occurred_at desc)," +
-  "agg as (" +
-  "  select license_key," +
-  "    count(*) filter (where event_type='exit' and occurred_at >= now() - interval '24 hours') as exits_24h," +
-  "    coalesce(sum(pnl) filter (where occurred_at >= now() - interval '24 hours'),0) as pnl_24h," +
-  "    coalesce(sum(case when event_type='exit' and pnl>0 and occurred_at >= now() - interval '24 hours' then 1 else 0 end),0) as wins_24h" +
-  "  from bot_events group by 1)" +
-  "select l.license_key, l.event_type as last_type, l.action as last_action, l.price as last_price," +
-  "       l.pnl as last_pnl, l.occurred_at as last_at," +
-  "       coalesce(a.exits_24h,0) as exits_24h, coalesce(a.pnl_24h,0) as pnl_24h, coalesce(a.wins_24h,0) as wins_24h " +
-  "from last_ev l left join agg a using (license_key)";
+// Each trade is tagged with its STRATEGY by joining bot_status on (license, hardware) — bot_events
+// has no strategy column of its own. Times are formatted to US Eastern (handles EST/EDT) server-side.
+const RECENT_SQL =
+  "select t.license_key, t.strat, t.event_type, t.action, t.price, t.pnl, t.detail, t.est from (" +
+  "select e.license_key, s.strategy as strat, e.event_type, e.action, e.price, e.pnl, e.detail, " +
+  "to_char(e.occurred_at at time zone 'America/New_York','Mon DD, HH12:MI AM') as est, e.occurred_at, " +
+  "row_number() over (partition by e.license_key order by e.occurred_at desc) rn " +
+  "from bot_events e left join bot_status s on s.license_key=e.license_key and s.hardware_id=e.hardware_id" +
+  ") t where t.rn <= 6 order by t.license_key, t.occurred_at desc";
+
+const AGG_SQL =
+  "select e.license_key, coalesce(s.strategy,'?') as strat, " +
+  "count(*) filter (where e.event_type='exit') as trades, " +
+  "coalesce(sum(case when e.event_type='exit' and e.pnl>0 then 1 else 0 end),0) as wins, " +
+  "round(coalesce(sum(e.pnl),0)) as pnl " +
+  "from bot_events e left join bot_status s on s.license_key=e.license_key and s.hardware_id=e.hardware_id " +
+  "where e.occurred_at >= now() - interval '24 hours' group by 1,2";
 
 const tradesCache = cached(60000);
 async function buildTrades() {
   if (!HUB_TOKEN) return { groups: {}, count: 0, source: "no HUB_MGMT_TOKEN set" };
-  const rows = await hubQuery(TRADES_SQL);
+  const [recent, agg] = await Promise.all([hubQuery(RECENT_SQL), hubQuery(AGG_SQL)]);
+  const byLic = {};
+  const rec = (k) => (byLic[k] = byLic[k] || { recent: [], byStrat: {}, strategy: null, last: null });
+  (recent || []).forEach((r) => {
+    if (!r.license_key) return;
+    rec(r.license_key).recent.push({
+      type: r.event_type, action: r.action,
+      price: r.price != null ? Number(r.price) : null,
+      pnl: r.pnl != null ? Number(r.pnl) : null,
+      est: r.est, strat: r.strat, detail: r.detail,
+    });
+  });
+  (agg || []).forEach((a) => {
+    if (!a.license_key) return;
+    const strat = a.strat && a.strat !== "?" ? a.strat : "Other";
+    rec(a.license_key).byStrat[strat] = { trades: Number(a.trades) || 0, wins: Number(a.wins) || 0, pnl: Number(a.pnl) || 0 };
+  });
   const groups = {};
-  (rows || []).forEach((row) => {
-    const key = row.license_key;
-    if (!key) return;
-    const rec = {
-      lastType: row.last_type, lastAction: row.last_action,
-      lastPrice: row.last_price != null ? Number(row.last_price) : null,
-      lastPnl: row.last_pnl != null ? Number(row.last_pnl) : null,
-      lastAt: row.last_at,
-      exits24h: Number(row.exits_24h) || 0,
-      pnl24h: Number(row.pnl_24h) || 0,
-      wins24h: Number(row.wins_24h) || 0,
-    };
-    bothGroups(key).forEach((g) => (groups[g] = rec));
+  Object.keys(byLic).forEach((k) => {
+    const r = byLic[k];
+    r.last = r.recent[0] || null;
+    r.strategy = (r.last && r.last.strat) || Object.keys(r.byStrat)[0] || null;
+    bothGroups(k).forEach((g) => (groups[g] = r));
   });
   return { groups, count: Object.keys(groups).length, source: "hub" };
 }

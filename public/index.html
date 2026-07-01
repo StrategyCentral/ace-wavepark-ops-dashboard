@@ -10,9 +10,10 @@
     --text:#e6edf3; --muted:#7d8da3;
     --live:#2ee6a6; --live-glow:rgba(46,230,166,.55);
     --dead:#3a4656; --warn:#f0b429; --bad:#ff5d5d;
-    --master:#5ab0ff; --relay:#b78bff;
-    --skim:#2ee6a6;       /* SKIMBOARD live feed */
-    --test:#5ab0ff;       /* MASTERTESTER test feed */
+    --relay:#b78bff;
+    --skim:#2ee6a6; --skim-glow:rgba(46,230,166,.5);
+    --test:#5ab0ff; --test-glow:rgba(90,176,255,.5);
+    --pos:#2ee6a6; --neg:#ff6b6b;
   }
   *{box-sizing:border-box}
   html,body{margin:0;height:100%}
@@ -22,109 +23,82 @@
     font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
     -webkit-font-smoothing:antialiased;
   }
-  header{
-    display:flex;align-items:center;gap:16px;flex-wrap:wrap;
-    padding:16px 26px;border-bottom:1px solid var(--line);
-    background:linear-gradient(180deg,rgba(18,24,35,.92),rgba(18,24,35,.45));
-    position:sticky;top:0;z-index:6;backdrop-filter:blur(7px);
-  }
+  header{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:16px 26px;border-bottom:1px solid var(--line);
+    background:linear-gradient(180deg,rgba(18,24,35,.92),rgba(18,24,35,.45));position:sticky;top:0;z-index:6;backdrop-filter:blur(7px)}
   header h1{font-size:16px;margin:0;letter-spacing:.3px;font-weight:600}
   header h1 .dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--live);
     box-shadow:0 0 10px var(--live-glow);margin-right:8px;vertical-align:middle;animation:pulse 2s infinite}
   .pills{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto;align-items:center}
-  .pill{font-size:12px;padding:5px 11px;border:1px solid var(--line);border-radius:999px;color:var(--muted);
-    background:var(--panel-2);white-space:nowrap}
+  .pill{font-size:12px;padding:5px 11px;border:1px solid var(--line);border-radius:999px;color:var(--muted);background:var(--panel-2);white-space:nowrap}
   .pill b{color:var(--text);font-weight:600}
   .pill.ok{border-color:rgba(46,230,166,.4);color:var(--live)}
   .pill.warn{border-color:rgba(240,180,41,.4);color:var(--warn)}
   .pill.bad{border-color:rgba(255,93,93,.4);color:var(--bad)}
   #updated{font-size:12px;color:var(--muted)}
+  .wrap{padding:26px 26px 56px;max-width:1680px;margin:0 auto}
 
-  .wrap{padding:26px 26px 56px;max-width:1640px;margin:0 auto}
-
-  /* ── Feed ticker (the two animated signal feeds) ─────────────── */
-  .feeds{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:28px}
-  .feed{position:relative;overflow:hidden;border:1px solid var(--line);border-radius:14px;
-    background:linear-gradient(160deg,#121a26,#0e141d);padding:16px 18px}
-  .feed.skim{border-color:rgba(46,230,166,.3)}
-  .feed.test{border-color:rgba(90,176,255,.3)}
-  .feed .ftop{display:flex;align-items:center;gap:10px}
-  .feed .fname{font-weight:700;letter-spacing:.4px}
-  .feed.skim .fname{color:var(--skim)} .feed.test .fname{color:var(--test)}
-  .feed .ftag{font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:2px 9px}
-  .feed .fbig{font-size:26px;font-weight:700;margin-top:8px}
-  .feed .fsub{font-size:12px;color:var(--muted);margin-top:2px}
-  .feed .beat{margin-left:auto;width:11px;height:11px;border-radius:50%;background:var(--dead)}
-  .feed.hot .beat{animation:beat 1.1s infinite}
-  .feed.skim.hot .beat{background:var(--skim);box-shadow:0 0 12px var(--live-glow)}
-  .feed.test.hot .beat{background:var(--test);box-shadow:0 0 12px rgba(90,176,255,.6)}
-  /* scrolling signal sparks across the feed */
-  .feed .spark{position:absolute;bottom:0;left:0;height:3px;width:34%;border-radius:3px;opacity:.0}
-  .feed.skim .spark{background:linear-gradient(90deg,transparent,var(--skim),transparent)}
-  .feed.test .spark{background:linear-gradient(90deg,transparent,var(--test),transparent)}
-  .feed.hot .spark{opacity:.9;animation:slide 2.2s linear infinite}
-
-  /* ── Flow grid: master | relay | users (roomier) ─────────────── */
-  .flow{position:relative;display:grid;grid-template-columns:250px 180px 1fr;column-gap:72px;align-items:stretch;min-height:500px}
+  /* flow: two strategy nodes | relay | users */
+  .flow{position:relative;display:grid;grid-template-columns:260px 190px 1fr;column-gap:78px;align-items:start;min-height:520px}
   .col-title{font-size:11px;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin:0 0 14px 2px}
 
-  .master-col{padding-right:0;display:flex;flex-direction:column}
-  .node-master{
-    background:linear-gradient(160deg,#152232,#101824);
-    border:1px solid rgba(90,176,255,.35);border-radius:16px;padding:20px;
-    box-shadow:0 0 0 1px rgba(90,176,255,.05),0 14px 38px rgba(0,0,0,.38);
-    position:sticky;top:96px;
-  }
-  .node-master .badge{font-size:10px;letter-spacing:1.2px;color:var(--master);text-transform:uppercase}
-  .node-master h2{margin:8px 0 4px;font-size:20px}
-  .node-master .sub{color:var(--muted);font-size:12px}
-  .mstat{display:flex;justify-content:space-between;margin-top:14px;font-size:12px;color:var(--muted);
-    border-top:1px solid var(--line);padding-top:12px}
-  .mstat b{color:var(--text)}
+  .master-col{display:flex;flex-direction:column;gap:20px}
+  .node-strat{border-radius:16px;padding:18px;background:linear-gradient(160deg,#141d2a,#0e141d);
+    box-shadow:0 14px 34px rgba(0,0,0,.36);position:relative}
+  .node-strat.skim{border:1px solid rgba(46,230,166,.4)}
+  .node-strat.test{border:1px solid rgba(90,176,255,.4)}
+  .node-strat .stbadge{font-size:10px;letter-spacing:1.2px;text-transform:uppercase}
+  .node-strat.skim .stbadge{color:var(--skim)} .node-strat.test .stbadge{color:var(--test)}
+  .node-strat h2{margin:6px 0 2px;font-size:19px;display:flex;align-items:center;gap:9px}
+  .node-strat .beat{width:10px;height:10px;border-radius:50%;background:var(--dead)}
+  .node-strat.skim.hot .beat{background:var(--skim);box-shadow:0 0 12px var(--skim-glow);animation:beat 1.1s infinite}
+  .node-strat.test.hot .beat{background:var(--test);box-shadow:0 0 12px var(--test-glow);animation:beat 1.1s infinite}
+  .node-strat .desc{color:var(--muted);font-size:11px}
+  .node-strat .big{font-size:24px;font-weight:700;margin-top:10px}
+  .node-strat .sub{font-size:11px;color:var(--muted);margin-top:2px}
+  .node-strat .spark{position:absolute;bottom:0;left:0;height:3px;width:36%;border-radius:3px;opacity:0}
+  .node-strat.skim .spark{background:linear-gradient(90deg,transparent,var(--skim),transparent)}
+  .node-strat.test .spark{background:linear-gradient(90deg,transparent,var(--test),transparent)}
+  .node-strat.hot .spark{opacity:.9;animation:slide 2.2s linear infinite}
 
   .relay-col{display:flex;flex-direction:column;align-items:center}
-  .node-relay{
-    position:sticky;top:96px;text-align:center;
-    background:linear-gradient(160deg,#1d1730,#140f22);
-    border:1px solid rgba(183,139,255,.4);border-radius:16px;padding:24px 16px;width:100%;
-    box-shadow:0 14px 38px rgba(0,0,0,.38);
-  }
-  .node-relay .ring{width:66px;height:66px;border-radius:50%;margin:0 auto 12px;
-    border:2px solid var(--relay);display:flex;align-items:center;justify-content:center;
-    box-shadow:0 0 24px rgba(183,139,255,.45);animation:spin 6s linear infinite}
-  .node-relay .ring::before{content:"";width:12px;height:12px;border-radius:50%;background:var(--relay);
-    box-shadow:0 0 14px var(--relay)}
+  .node-relay{position:sticky;top:96px;text-align:center;background:linear-gradient(160deg,#1d1730,#140f22);
+    border:1px solid rgba(183,139,255,.4);border-radius:16px;padding:24px 16px;width:100%;box-shadow:0 14px 38px rgba(0,0,0,.38)}
+  .node-relay .ring{width:66px;height:66px;border-radius:50%;margin:0 auto 12px;border:2px solid var(--relay);
+    display:flex;align-items:center;justify-content:center;box-shadow:0 0 24px rgba(183,139,255,.45);animation:spin 6s linear infinite}
+  .node-relay .ring::before{content:"";width:12px;height:12px;border-radius:50%;background:var(--relay);box-shadow:0 0 14px var(--relay)}
   .node-relay h3{margin:0;font-size:15px}
   .node-relay .sub{font-size:11px;color:var(--muted);margin-top:4px}
   .relay-state{margin-top:12px;font-size:12px;font-weight:600}
 
   .users-col{padding-left:0}
-  .users{display:flex;flex-direction:column;gap:12px;max-width:720px}
-  .urow{
-    display:grid;grid-template-columns:1fr auto;gap:14px;align-items:center;
-    background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 15px;
-    position:relative;transition:border-color .3s,transform .15s;min-height:62px;
-  }
+  .users{display:flex;flex-direction:column;gap:12px;max-width:760px}
+  .urow{display:grid;grid-template-columns:1fr auto;gap:14px;align-items:start;background:var(--panel);
+    border:1px solid var(--line);border-radius:14px;padding:14px 16px;position:relative;transition:border-color .3s,transform .15s}
   .urow:hover{transform:translateX(2px)}
   .urow.live{border-color:rgba(46,230,166,.4)}
   .urow.stale{border-color:rgba(240,180,41,.32)}
   .uname{font-weight:700;font-size:15px;display:flex;align-items:center;gap:9px;flex-wrap:wrap}
-  .uname .gid{font-size:11px;color:var(--muted);font-weight:400;background:var(--panel-2);
-    border:1px solid var(--line);padding:1px 8px;border-radius:6px;font-family:ui-monospace,Menlo,monospace}
-  .umeta{display:flex;gap:9px;flex-wrap:wrap;margin-top:10px;align-items:center}
-  /* feed chips on each user row */
-  .fchip{font-size:11px;padding:4px 10px;border-radius:999px;border:1px solid var(--line);
-    color:var(--muted);display:flex;align-items:center;gap:6px;white-space:nowrap}
-  .fchip .d{width:7px;height:7px;border-radius:50%;background:var(--dead)}
-  .fchip.skim.on{color:var(--skim);border-color:rgba(46,230,166,.45);background:rgba(46,230,166,.06)}
-  .fchip.skim.on .d{background:var(--skim);box-shadow:0 0 8px var(--live-glow)}
-  .fchip.test.on{color:var(--test);border-color:rgba(90,176,255,.45);background:rgba(90,176,255,.06)}
-  .fchip.test.on .d{background:var(--test);box-shadow:0 0 8px rgba(90,176,255,.6)}
-  .took{font-size:11px;padding:4px 10px;border-radius:999px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
-  .took.yes{color:var(--live);border-color:rgba(46,230,166,.45);background:rgba(46,230,166,.06)}
-  .flags{display:flex;gap:8px;align-items:center}
-  .flag{font-size:11px;padding:3px 9px;border-radius:999px;border:1px solid var(--line);
-    color:var(--muted);white-space:nowrap;display:flex;align-items:center;gap:5px}
+  .uname .gid{font-size:11px;color:var(--muted);font-weight:400;background:var(--panel-2);border:1px solid var(--line);
+    padding:1px 8px;border-radius:6px;font-family:ui-monospace,Menlo,monospace}
+  .strat{font-size:10px;letter-spacing:.6px;padding:2px 8px;border-radius:999px;text-transform:uppercase;font-weight:700}
+  .strat.skim{color:var(--skim);border:1px solid rgba(46,230,166,.45);background:rgba(46,230,166,.07)}
+  .strat.test{color:var(--test);border:1px solid rgba(90,176,255,.45);background:rgba(90,176,255,.07)}
+  .umeta{display:flex;gap:8px;flex-wrap:wrap;margin-top:9px;align-items:center}
+  .chip{font-size:11px;padding:4px 10px;border-radius:999px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+  .chip.on{color:var(--text)}
+  .took{font-size:11.5px;padding:4px 11px;border-radius:999px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+  .took.win{color:var(--pos);border-color:rgba(46,230,166,.45);background:rgba(46,230,166,.06)}
+  .took.loss{color:var(--neg);border-color:rgba(255,107,107,.4);background:rgba(255,107,107,.06)}
+  .pnl{font-size:11px;padding:4px 10px;border-radius:999px;border:1px solid var(--line);white-space:nowrap;display:flex;gap:6px;align-items:center}
+  .pnl .lab{font-weight:700;letter-spacing:.4px}
+  .pnl.skim .lab{color:var(--skim)} .pnl.test .lab{color:var(--test)}
+  .pnl .v.pos{color:var(--pos)} .pnl .v.neg{color:var(--neg)}
+  .recent{margin-top:9px;display:flex;flex-wrap:wrap;gap:6px}
+  .rt{font-size:10.5px;color:var(--muted);font-family:ui-monospace,Menlo,monospace;background:var(--panel-2);
+    border:1px solid var(--line);border-radius:6px;padding:2px 7px;white-space:nowrap}
+  .rt .g{color:var(--pos)} .rt .r{color:var(--neg)}
+  .uflags{display:flex;gap:8px;align-items:center}
+  .flag{font-size:11px;padding:3px 9px;border-radius:999px;border:1px solid var(--line);color:var(--muted);white-space:nowrap;display:flex;align-items:center;gap:5px}
   .flag .d{width:7px;height:7px;border-radius:50%;background:var(--dead)}
   .flag.yes{color:var(--live);border-color:rgba(46,230,166,.4)}
   .flag.yes .d{background:var(--live);box-shadow:0 0 8px var(--live-glow)}
@@ -134,29 +108,22 @@
   #cables{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0}
   .flow > *{position:relative;z-index:1}
   .cable{fill:none;stroke:var(--dead);stroke-width:2;opacity:.55;stroke-dasharray:7 7;animation:flow 2.6s linear infinite}
-  .cable.live{stroke:var(--live);stroke-width:2.4;opacity:.95;filter:drop-shadow(0 0 5px var(--live-glow))}
+  .cable.skim{stroke:var(--skim);opacity:.9;filter:drop-shadow(0 0 4px var(--skim-glow))}
+  .cable.test{stroke:var(--test);opacity:.9;filter:drop-shadow(0 0 4px var(--test-glow))}
+  .cable.live{stroke:var(--live);stroke-width:2.4;opacity:.95;filter:drop-shadow(0 0 5px var(--live-glow));animation:flow 1s linear infinite}
   .cable.stale{stroke:var(--warn);opacity:.7}
-  .pulse{fill:var(--live);filter:drop-shadow(0 0 6px var(--live-glow))}
-  .pulse.dim{fill:var(--muted);filter:none;opacity:.5}
+  .pulse{filter:drop-shadow(0 0 6px var(--live-glow))}
+  .pulse.dim{filter:none;opacity:.5}
 
   .empty{padding:48px;text-align:center;color:var(--muted)}
   .footnote{margin-top:26px;font-size:11px;color:var(--muted);text-align:center;line-height:1.7}
-  a{color:var(--master)}
-
+  a{color:var(--test)}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
   @keyframes spin{to{transform:rotate(360deg)}}
   @keyframes flow{to{stroke-dashoffset:-26}}
   @keyframes beat{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.5);opacity:.5}}
-  @keyframes slide{0%{transform:translateX(-120%)}100%{transform:translateX(320%)}}
-  .cable.live{stroke-dasharray:7 7;animation:flow 1s linear infinite}
-
-  @media(max-width:980px){
-    .flow{grid-template-columns:1fr}
-    #cables{display:none}
-    .node-master,.node-relay{position:static;margin-bottom:16px}
-    .relay-col{margin-bottom:16px}
-    .feeds{grid-template-columns:1fr}
-  }
+  @keyframes slide{0%{transform:translateX(-120%)}100%{transform:translateX(340%)}}
+  @media(max-width:1000px){.flow{grid-template-columns:1fr}#cables{display:none}.node-relay{position:static}.master-col{margin-bottom:16px}}
 </style>
 </head>
 <body>
@@ -171,37 +138,31 @@
 </header>
 
 <div class="wrap">
-
-  <!-- TWO ANIMATED SIGNAL FEEDS -->
-  <div class="feeds">
-    <div class="feed test" id="feed-test">
-      <div class="ftop"><span class="fname">MASTERTESTER</span><span class="ftag">always-on test feed</span><span class="beat"></span></div>
-      <div class="fbig" id="test-msgs">—</div>
-      <div class="fsub" id="test-sub">test signals today · last —</div>
-      <div class="spark"></div>
-    </div>
-    <div class="feed skim" id="feed-skim">
-      <div class="ftop"><span class="fname">SKIMBOARD</span><span class="ftag">live trade feed</span><span class="beat"></span></div>
-      <div class="fbig" id="skim-msgs">—</div>
-      <div class="fsub" id="skim-sub">live signals today · last —</div>
-      <div class="spark"></div>
-    </div>
-  </div>
-
   <div class="flow" id="flow">
     <svg id="cables" preserveAspectRatio="none"></svg>
 
+    <!-- TWO STRATEGY MASTERS -->
     <div class="master-col">
-      <p class="col-title">Master</p>
-      <div class="node-master" id="masterNode">
-        <div class="badge">MASTERTESTER · SKIMBOARD</div>
-        <h2>Signal Master</h2>
-        <div class="sub">Source of truth — emits trade signals</div>
-        <div class="mstat"><span>Feeds</span><b id="m-strats">—</b></div>
-        <div class="mstat"><span>Last signal sent</span><b id="m-seen">—</b></div>
+      <p class="col-title">Strategies → Relay</p>
+      <div class="node-strat skim" id="masterSkim">
+        <div class="stbadge">Live trade feed</div>
+        <h2>SKIMBOARD <span class="beat"></span></h2>
+        <div class="desc">master strategy · broadcasts live signals</div>
+        <div class="big" id="skim-msgs">—</div>
+        <div class="sub" id="skim-sub">signals today · last —</div>
+        <div class="spark"></div>
+      </div>
+      <div class="node-strat test" id="masterTest">
+        <div class="stbadge">Always-on test feed</div>
+        <h2>MASTERTESTER <span class="beat"></span></h2>
+        <div class="desc">test strategy · 24/7 practice signals</div>
+        <div class="big" id="test-msgs">—</div>
+        <div class="sub" id="test-sub">signals today · last —</div>
+        <div class="spark"></div>
       </div>
     </div>
 
+    <!-- RELAY -->
     <div class="relay-col">
       <p class="col-title">Relay</p>
       <div class="node-relay" id="relayNode">
@@ -212,6 +173,7 @@
       </div>
     </div>
 
+    <!-- USERS -->
     <div class="users-col">
       <p class="col-title">Subscribers · BoardShop children</p>
       <div class="users" id="users"><div class="empty">Loading subscribers…</div></div>
@@ -219,242 +181,196 @@
   </div>
 
   <div class="footnote">
-    Read-only ops view · auto-refresh every 10s · no writes to any service.<br>
-    Names: Hub <code>/names</code> · signals: relay <code>/stats</code> · subscribers: licensing <code>/api/groups</code>.
+    Read-only ops view · auto-refresh every 10s · times in US Eastern (ET) · no writes to any service.<br>
+    Names & trades: Customer Hub · live signals: relay · subscribers: licensing. Trade P&L is per strategy from your BoardShop telemetry.
   </div>
 </div>
 
 <script>
 (function(){
   "use strict";
-  var LIC = "https://ace-wave-park-licensing-production.up.railway.app";
-  var RELAY = "https://ace-relay-production.up.railway.app";
-  var REFRESH = 10000;
-  var STALE_MS = 15*60*1000;
-  var DEAD_MS  = 24*60*60*1000;
-  var HOT_MS   = 90*1000;            // signal within 90s => feed "hot" (animated)
+  var LIC="https://ace-wave-park-licensing-production.up.railway.app";
+  var RELAY="https://ace-relay-production.up.railway.app";
+  var REFRESH=10000, STALE_MS=15*60*1000, DEAD_MS=24*60*60*1000, HOT_MS=90*1000;
+  var $=function(id){return document.getElementById(id);};
+  function cb(){return "_="+Date.now();}
+  function age(iso){if(!iso)return Infinity;var t=new Date(iso).getTime();return isNaN(t)?Infinity:Date.now()-t;}
+  function fmtAgo(iso){if(!iso)return "—";var s=Math.floor(age(iso)/1000);if(s<0)s=0;
+    if(s<60)return s+"s ago";if(s<3600)return Math.floor(s/60)+"m ago";if(s<86400)return Math.floor(s/3600)+"h ago";return Math.floor(s/86400)+"d ago";}
+  function estOf(iso){ if(!iso)return "—"; try{
+      return new Date(iso).toLocaleString("en-US",{timeZone:"America/New_York",month:"short",day:"numeric",hour:"numeric",minute:"2-digit"})+" ET";
+    }catch(e){return "—";} }
+  function money(n){return (n<0?"-":"+")+"$"+Math.abs(Math.round(n));}
+  function esc(s){if(s==null)return "";return String(s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];});}
 
-  var $ = function(id){ return document.getElementById(id); };
-  function cb(){ return "_=" + Date.now(); }
-  function fmtAgo(iso){
-    if(!iso) return "—";
-    var t=new Date(iso).getTime(); if(isNaN(t)) return "n/a";
-    var s=Math.floor((Date.now()-t)/1000); if(s<0)s=0;
-    if(s<60) return s+"s ago";
-    if(s<3600) return Math.floor(s/60)+"m ago";
-    if(s<86400) return Math.floor(s/3600)+"h ago";
-    return Math.floor(s/86400)+"d ago";
-  }
-  function age(iso){ if(!iso) return Infinity; var t=new Date(iso).getTime(); return isNaN(t)?Infinity:Date.now()-t; }
-  function esc(s){ if(s==null) return ""; return String(s).replace(/[&<>"']/g,function(c){
-    return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
-
-  function getJSON(url){
-    return fetch(url,{cache:"no-store"}).then(function(r){
-      if(!r.ok) return {__err:true,status:r.status};
-      var ct=r.headers.get("content-type")||"";
-      if(ct.indexOf("application/json")===-1) return r.text().then(function(t){return {__text:t};});
-      return r.json();
-    }).catch(function(){ return {__err:true}; });
-  }
+  function getJSON(url){return fetch(url,{cache:"no-store"}).then(function(r){
+    if(!r.ok)return {__err:true,status:r.status};
+    var ct=r.headers.get("content-type")||"";
+    if(ct.indexOf("application/json")===-1)return r.text().then(function(t){return {__text:t};});
+    return r.json();}).catch(function(){return {__err:true};});}
 
   function parseRelay(raw){
-    var out={up:false,byGroup:{},uptime:null,hasGroups:false};
-    if(!raw||raw.__err){ out.reason=raw&&raw.status===404?"no /stats":"unreachable"; return out; }
-    if(raw.__text!==undefined){ out.up=/ok/i.test(raw.__text); out.reason="online"; out.textOnly=true; return out; }
-    out.up=true; out.uptime=raw.uptimeSeconds!=null?raw.uptimeSeconds:raw.uptime;
-    var groups=Array.isArray(raw.groups)?raw.groups:[];
-    var tc=0,tm=0;
-    groups.forEach(function(g){ if(g&&g.group) out.byGroup[g.group]=g;
-      if(g&&typeof g.children==="number")tc+=g.children; if(g&&typeof g.masters==="number")tm+=g.masters; });
-    out.totChildren=tc; out.totMasters=tm; out.hasGroups=groups.length>0; out.reason="online";
-    out.groups=groups;
-    return out;
-  }
+    var out={up:false,byGroup:{},hasGroups:false,groups:[]};
+    if(!raw||raw.__err){out.reason=raw&&raw.status===404?"no /stats":"unreachable";return out;}
+    if(raw.__text!==undefined){out.up=/ok/i.test(raw.__text);out.reason="online";return out;}
+    out.up=true;var groups=Array.isArray(raw.groups)?raw.groups:[];
+    var tc=0,tm=0;groups.forEach(function(g){if(g&&g.group)out.byGroup[g.group]=g;
+      if(g&&typeof g.children==="number")tc+=g.children;if(g&&typeof g.masters==="number")tm+=g.masters;});
+    out.totChildren=tc;out.totMasters=tm;out.hasGroups=groups.length>0;out.groups=groups;out.reason="online";return out;}
 
-  // aggregate feed-wide stats by prefix
-  function feedAgg(relay,prefix){
-    var msgs=0, last=null, children=0;
-    (relay.groups||[]).forEach(function(g){
-      if(g.group && g.group.indexOf(prefix+"-")===0){
-        msgs += (g.messagesToday||0);
-        children += (g.children||0);
-        if(g.lastMessageAt && (!last || age(g.lastMessageAt)<age(last))) last=g.lastMessageAt;
-      }
-    });
-    return {msgs:msgs,last:last,children:children};
-  }
+  function feedAgg(relay,prefix){var msgs=0,last=null,children=0;
+    (relay.groups||[]).forEach(function(g){if(g.group&&g.group.indexOf(prefix+"-")===0){
+      msgs+=(g.messagesToday||0);children+=(g.children||0);
+      if(g.lastMessageAt&&(!last||age(g.lastMessageAt)<age(last)))last=g.lastMessageAt;}});
+    return {msgs:msgs,last:last,children:children};}
 
-  var lastUsers=[], NAMES={}, TRADES={};
+  var lastUsers=[],NAMES={},TRADES={},lastRelay={groups:[]};
 
-  function money(n){ var s=(n<0?"-":"+")+"$"+Math.abs(Math.round(n)); return s; }
+  function stratClass(s){return s==="SKIMBOARD"?"skim":s==="MASTERTESTER"?"test":"";}
 
-  function render(skim, master, relay, names, trades){
-    NAMES = (names && names.groups) ? names.groups : {};
-    TRADES = (trades && trades.groups) ? trades.groups : {};
+  function render(skim,master,relay,names,trades){
+    NAMES=(names&&names.groups)?names.groups:{};
+    TRADES=(trades&&trades.groups)?trades.groups:{};
+    lastRelay=relay;
 
-    // relay header
+    // relay pill
     if(relay.up){
-      $("p-relay").className = relay.hasGroups?"pill ok":"pill warn";
-      $("p-relay").innerHTML = relay.hasGroups ? ("Relay <b>live</b> · "+relay.totChildren+" child") : "Relay <b>online</b>";
-      $("relayState").textContent = relay.hasGroups ? (relay.totChildren+" children · "+relay.totMasters+" masters") : relay.reason;
-      $("relayState").style.color = relay.hasGroups?"var(--live)":"var(--warn)";
-      $("relayNode").style.opacity="1";
-    } else {
-      $("p-relay").className="pill bad"; $("p-relay").innerHTML="Relay <b>down</b>";
-      $("relayState").textContent="relay stats unavailable"; $("relayState").style.color="var(--bad)"; $("relayNode").style.opacity=".55";
-    }
+      $("p-relay").className=relay.hasGroups?"pill ok":"pill warn";
+      $("p-relay").innerHTML=relay.hasGroups?("Relay <b>live</b> · "+relay.totChildren+" child"):"Relay <b>online</b>";
+      $("relayState").textContent=relay.hasGroups?(relay.totChildren+" children · "+relay.totMasters+" masters"):relay.reason;
+      $("relayState").style.color=relay.hasGroups?"var(--live)":"var(--warn)";$("relayNode").style.opacity="1";
+    }else{$("p-relay").className="pill bad";$("p-relay").innerHTML="Relay <b>down</b>";
+      $("relayState").textContent="relay stats unavailable";$("relayState").style.color="var(--bad)";$("relayNode").style.opacity=".55";}
 
-    // two feed tiles
-    var ft=feedAgg(relay,"mastertester"), fs=feedAgg(relay,"skimboard");
-    $("test-msgs").textContent=ft.msgs; $("test-sub").textContent="test signals today · last "+fmtAgo(ft.last);
-    $("skim-msgs").textContent=fs.msgs; $("skim-sub").textContent="live signals today · last "+fmtAgo(fs.last);
-    $("feed-test").classList.toggle("hot", age(ft.last)<HOT_MS);
-    $("feed-skim").classList.toggle("hot", age(fs.last)<HOT_MS);
+    // two master strategy nodes
+    var fs=feedAgg(relay,"skimboard"), ft=feedAgg(relay,"mastertester");
+    $("skim-msgs").textContent=fs.msgs; $("skim-sub").textContent="signals today · last "+fmtAgo(fs.last);
+    $("test-msgs").textContent=ft.msgs; $("test-sub").textContent="signals today · last "+fmtAgo(ft.last);
+    $("masterSkim").classList.toggle("hot",age(fs.last)<HOT_MS);
+    $("masterTest").classList.toggle("hot",age(ft.last)<HOT_MS);
 
-    // master node
-    $("m-strats").textContent="MASTERTESTER + SKIMBOARD";
-    var newest=null;
-    [ft.last,fs.last].forEach(function(x){ if(x&&(!newest||age(x)<age(newest)))newest=x; });
-    $("m-seen").textContent=fmtAgo(newest);
-
-    // join users by masked license (present in both feeds)
+    // join users by masked license
     var byLic={};
-    function add(list,kind){
-      ((list&&list.groups)||[]).forEach(function(g){
-        var k=g.license_key||"?";
-        if(!byLic[k]) byLic[k]={license:k,skimGroup:null,masterGroup:null,lastSeen:null};
-        if(kind==="skim") byLic[k].skimGroup=g.group; else byLic[k].masterGroup=g.group;
-        if(!byLic[k].lastSeen || age(g.last_seen)<age(byLic[k].lastSeen)) byLic[k].lastSeen=g.last_seen;
-      });
-    }
-    add(skim,"skim"); add(master,"master");
+    function add(list,kind){((list&&list.groups)||[]).forEach(function(g){var k=g.license_key||"?";
+      if(!byLic[k])byLic[k]={license:k,skimGroup:null,masterGroup:null,lastSeen:null};
+      if(kind==="skim")byLic[k].skimGroup=g.group;else byLic[k].masterGroup=g.group;
+      if(!byLic[k].lastSeen||age(g.last_seen)<age(byLic[k].lastSeen))byLic[k].lastSeen=g.last_seen;});}
+    add(skim,"skim");add(master,"master");
 
     var liveCount=0;
     var rows=Object.keys(byLic).map(function(k){
       var u=byLic[k];
-      var rs=relay.byGroup[u.skimGroup]||null;     // skimboard (live) relay stats
-      var rm=relay.byGroup[u.masterGroup]||null;    // mastertester (test) relay stats
-      var skimChild=rs&&typeof rs.children==="number"?rs.children>0:false;
-      var testChild=rm&&typeof rm.children==="number"?rm.children>0:false;
+      var rs=relay.byGroup[u.skimGroup]||null, rm=relay.byGroup[u.masterGroup]||null;
+      var skimChild=!!(rs&&rs.children>0), testChild=!!(rm&&rm.children>0);
       var childConnected=skimChild||testChild;
-
-      // which feed delivered the most recent signal to this user
       var skimLast=rs?rs.lastMessageAt:null, testLast=rm?rm.lastMessageAt:null;
-      var lastSignal=null, lastFeed=null;
+      var lastSignal=null,lastFeed=null;
       if(skimLast&&(!lastSignal||age(skimLast)<age(lastSignal))){lastSignal=skimLast;lastFeed="SKIMBOARD";}
       if(testLast&&(!lastSignal||age(testLast)<age(lastSignal))){lastSignal=testLast;lastFeed="MASTERTESTER";}
-
+      var tr=TRADES[u.skimGroup]||TRADES[u.masterGroup]||null;
       var a=age(u.lastSeen);
-      var state = childConnected ? "live" : (age(lastSignal)<STALE_MS||a<STALE_MS?"stale":(a<DEAD_MS?"stale":"dead"));
-      if(state==="live") liveCount++;
-
-      // "took the trade": a connected child on the feed that just signalled => received & acting on it
-      var took = childConnected && age(lastSignal)<STALE_MS;
-
-      var name = NAMES[u.skimGroup] || NAMES[u.masterGroup] || null;
-      var gidShort = (u.skimGroup||u.masterGroup||"").replace(/^skimboard-|^mastertester-/,"").slice(0,8);
-      var fallback = (u.license&&u.license!=="?") ? u.license.replace(/\.\.\.$/,"") : ("user-"+gidShort);
-      var tr = TRADES[u.skimGroup] || TRADES[u.masterGroup] || null;  // real fills from Hub bot_events
-
-      return {
-        license:u.license, name:name, fallback:fallback, gidShort:gidShort,
-        skimGroup:u.skimGroup, masterGroup:u.masterGroup,
-        skimChild:skimChild, testChild:testChild, childConnected:childConnected,
-        skimMsgs:rs?rs.messagesToday:null, testMsgs:rm?rm.messagesToday:null,
-        skimLast:skimLast, testLast:testLast, lastSignal:lastSignal, lastFeed:lastFeed,
-        took:took, trade:tr, lastSeen:u.lastSeen, state:state
-      };
+      var state=childConnected?"live":(age(lastSignal)<STALE_MS||a<DEAD_MS?"stale":"dead");
+      if(state==="live")liveCount++;
+      var name=NAMES[u.skimGroup]||NAMES[u.masterGroup]||null;
+      var gidShort=(u.skimGroup||u.masterGroup||"").replace(/^skimboard-|^mastertester-/,"").slice(0,8);
+      var fallback=(u.license&&u.license!=="?")?u.license.replace(/\.\.\.$/,""):("user-"+gidShort);
+      var strategy=(tr&&tr.strategy)|| (skimChild?"SKIMBOARD":testChild?"MASTERTESTER":null);
+      return {license:u.license,name:name,fallback:fallback,gidShort:gidShort,skimGroup:u.skimGroup,masterGroup:u.masterGroup,
+        skimChild:skimChild,testChild:testChild,childConnected:childConnected,lastSignal:lastSignal,lastFeed:lastFeed,
+        trade:tr,strategy:strategy,state:state};
     });
-    // sort: live first, then by most recent signal
-    rows.sort(function(a,b){
-      if((b.state==="live")-(a.state==="live")) return (b.state==="live")-(a.state==="live");
-      return age(a.lastSignal)-age(b.lastSignal);
-    });
+    rows.sort(function(a,b){var d=(b.state==="live")-(a.state==="live");if(d)return d;return age(a.lastSignal)-age(b.lastSignal);});
     lastUsers=rows;
 
     $("p-users").innerHTML="Users <b>"+rows.length+"</b>";
-    $("p-live").className=liveCount>0?"pill ok":"pill warn";
-    $("p-live").innerHTML="Live <b>"+liveCount+"</b>/"+rows.length;
+    $("p-live").className=liveCount>0?"pill ok":"pill warn";$("p-live").innerHTML="Live <b>"+liveCount+"</b>/"+rows.length;
 
     var host=$("users");
-    if(!rows.length){ host.innerHTML='<div class="empty">No subscribers returned by /api/groups.</div>'; }
-    else {
-      host.innerHTML=rows.map(function(r,i){
-        var display = r.name ? esc(r.name) : esc(r.fallback);
-        var nameCls = r.name ? "" : ' style="color:var(--muted);font-weight:600"';
-        var skimOn = r.skimChild ? "on":"";
-        var testOn = r.testChild ? "on":"";
-        // real fills from Hub bot_events
-        var tradeHtml="";
-        if(r.trade){
-          var t=r.trade;
-          var actLabel = t.lastType==="exit"
-            ? (/target/i.test(t.lastAction||"")?"TP":/stop/i.test(t.lastAction||"")?"SL":"exit")
-            : (t.lastAction||"").toUpperCase();
-          var head = t.lastType==="exit"
-            ? ("✓ "+actLabel+(t.lastPnl!=null?" "+money(t.lastPnl):""))
-            : ("✓ "+actLabel+(t.lastPrice!=null?" @ "+t.lastPrice:""));
-          tradeHtml += '<span class="took '+(age(t.lastAt)<STALE_MS?"yes":"")+'">'+esc(head)+' · '+fmtAgo(t.lastAt)+'</span>';
-          if(t.exits24h>0){
-            var pos=t.pnl24h>=0;
-            tradeHtml += '<span class="took" style="color:'+(pos?"var(--live)":"var(--bad)")+';border-color:'+(pos?"rgba(46,230,166,.45)":"rgba(255,93,93,.4)")+'">'+
-              t.exits24h+' trades · '+t.wins24h+'W · '+money(t.pnl24h)+' (24h)</span>';
-          }
-        } else if(r.lastFeed){
-          tradeHtml += '<span class="took '+(r.took?"yes":"")+'">'+(r.took?'✓ took signal on '+r.lastFeed:'last: '+r.lastFeed+' '+fmtAgo(r.lastSignal))+'</span>';
-        }
-        return ''+
-        '<div class="urow '+r.state+'" id="urow-'+i+'">'+
-          '<div>'+
-            '<div class="uname"><span'+nameCls+'>'+display+'</span>'+
-              '<span class="gid">'+esc(r.gidShort)+'</span></div>'+
-            '<div class="umeta">'+
-              '<span class="fchip skim '+skimOn+'"><span class="d"></span>SKIMBOARD'+
-                (r.skimLast?' · '+fmtAgo(r.skimLast):'')+'</span>'+
-              '<span class="fchip test '+testOn+'"><span class="d"></span>MASTERTESTER'+
-                (r.testLast?' · '+fmtAgo(r.testLast):'')+'</span>'+
-              tradeHtml+
-            '</div>'+
-          '</div>'+
-          '<div class="flags">'+
-            '<span class="flag '+(r.childConnected?'yes':'no')+'"><span class="d"></span>child</span>'+
-          '</div>'+
-        '</div>';
-      }).join("");
-    }
+    if(!rows.length){host.innerHTML='<div class="empty">No subscribers returned.</div>';}
+    else host.innerHTML=rows.map(function(r,i){return userRow(r,i);}).join("");
 
-    drawCables(rows, relay.up);
+    drawCables(rows,relay);
     $("updated").textContent="updated "+new Date().toLocaleTimeString();
   }
 
-  function drawCables(rows, relayUp){
-    var svg=$("cables"), flow=$("flow"); if(!svg||!flow) return;
-    var fr=flow.getBoundingClientRect();
-    var W=flow.clientWidth, H=flow.clientHeight;
-    svg.setAttribute("viewBox","0 0 "+W+" "+H); svg.setAttribute("width",W); svg.setAttribute("height",H);
-    var mB=$("masterNode").getBoundingClientRect(), rB=$("relayNode").getBoundingClientRect();
-    var mx=mB.right-fr.left, my=mB.top-fr.top+mB.height/2;
+  function userRow(r,i){
+    var display=r.name?esc(r.name):esc(r.fallback);
+    var nameCls=r.name?"":' style="color:var(--muted);font-weight:600"';
+    var stratBadge=r.strategy?'<span class="strat '+stratClass(r.strategy)+'">'+esc(r.strategy)+'</span>':'';
+
+    // last trade line (real fill w/ ET + which strategy)
+    var lastHtml="";
+    if(r.trade&&r.trade.last){
+      var t=r.trade.last;
+      var isExit=t.type==="exit";
+      var lab=isExit?(/target/i.test(t.action||"")?"TP":/stop/i.test(t.action||"")?"SL":"exit"):(t.action||"").toUpperCase();
+      var cls=isExit?(t.pnl>=0?"win":"loss"):"";
+      var head=isExit?(lab+(t.pnl!=null?" "+money(t.pnl):"")):(lab+(t.price!=null?" @ "+t.price:""));
+      lastHtml='<span class="took '+cls+'">'+esc(head)+' · '+esc(t.est||"—")+' · '+esc(t.strat||"?")+'</span>';
+    } else if(r.lastFeed){
+      lastHtml='<span class="took">last signal: '+r.lastFeed+' · '+estOf(r.lastSignal)+'</span>';
+    }
+
+    // per-strategy 24h P&L chips
+    var pnlHtml="";
+    if(r.trade&&r.trade.byStrat){
+      Object.keys(r.trade.byStrat).forEach(function(s){
+        var b=r.trade.byStrat[s];if(!b||b.trades===0)return;
+        var pos=b.pnl>=0;
+        pnlHtml+='<span class="pnl '+stratClass(s)+'"><span class="lab">'+esc(s)+'</span>'+
+          '<span>'+b.trades+'T · '+b.wins+'W</span><span class="v '+(pos?"pos":"neg")+'">'+money(b.pnl)+'</span></span>';
+      });
+    }
+
+    // recent trades strip (ET + pnl)
+    var recentHtml="";
+    if(r.trade&&r.trade.recent&&r.trade.recent.length){
+      recentHtml='<div class="recent">'+r.trade.recent.slice(0,5).map(function(t){
+        var tm=(t.est||"").replace(/^[A-Za-z]{3} \d+, /,"").replace(" ET","");
+        if(t.type==="exit"){var g=t.pnl>=0;return '<span class="rt">'+esc(tm)+' <span class="'+(g?"g":"r")+'">'+(t.pnl!=null?money(t.pnl):(/target/i.test(t.action||"")?"TP":"SL"))+'</span></span>';}
+        return '<span class="rt">'+esc(tm)+' '+esc((t.action||"").toUpperCase())+(t.price!=null?" @"+t.price:"")+'</span>';
+      }).join("")+'</div>';
+    }
+
+    return ''+
+    '<div class="urow '+r.state+'" id="urow-'+i+'">'+
+      '<div>'+
+        '<div class="uname"><span'+nameCls+'>'+display+'</span>'+stratBadge+'<span class="gid">'+esc(r.gidShort)+'</span></div>'+
+        '<div class="umeta">'+lastHtml+pnlHtml+'</div>'+
+        recentHtml+
+      '</div>'+
+      '<div class="uflags"><span class="flag '+(r.childConnected?"yes":"no")+'"><span class="d"></span>'+(r.childConnected?"connected":"offline")+'</span></div>'+
+    '</div>';
+  }
+
+  // cables: two master trunks (skim + test) -> relay, then relay -> each user
+  function drawCables(rows,relay){
+    var svg=$("cables"),flow=$("flow");if(!svg||!flow)return;
+    var fr=flow.getBoundingClientRect();var W=flow.clientWidth,H=flow.clientHeight;
+    svg.setAttribute("viewBox","0 0 "+W+" "+H);svg.setAttribute("width",W);svg.setAttribute("height",H);
+    var rB=$("relayNode").getBoundingClientRect();
     var rlx=rB.left-fr.left, rly=rB.top-fr.top+rB.height/2, rrx=rB.right-fr.left;
     var parts=[];
-    parts.push(curve(mx,my,rlx,rly, relayUp?"cable live":"cable","trunk"));
-    rows.forEach(function(r,i){
-      var el=$("urow-"+i); if(!el) return;
-      var b=el.getBoundingClientRect();
-      var uy=b.top-fr.top+b.height/2, ux=b.left-fr.left;
-      var cls = r.state==="live"?"cable live":(r.state==="stale"?"cable stale":"cable");
-      parts.push(curve(rrx,rly,ux,uy,cls,"u"+i));
+    var fs=feedAgg(relay,"skimboard"), ft=feedAgg(relay,"mastertester");
+    ["masterSkim","masterTest"].forEach(function(id,idx){
+      var el=$(id);if(!el)return;var b=el.getBoundingClientRect();
+      var mx=b.right-fr.left, my=b.top-fr.top+b.height/2;
+      var hot=(idx===0?age(fs.last):age(ft.last))<HOT_MS;
+      var cls="cable "+(idx===0?"skim":"test")+(hot?" live":"");
+      parts.push(curve(mx,my,rlx,rly,cls,"m"+idx,hot));
     });
+    rows.forEach(function(r,i){var el=$("urow-"+i);if(!el)return;var b=el.getBoundingClientRect();
+      var uy=b.top-fr.top+Math.min(b.height/2,40),ux=b.left-fr.left;
+      var cls=r.state==="live"?"cable live":(r.state==="stale"?"cable stale":"cable");
+      parts.push(curve(rrx,rly,ux,uy,cls,"u"+i,r.state==="live"));});
     svg.innerHTML=parts.join("");
   }
-  function curve(x1,y1,x2,y2,cls,id){
-    var mx=(x1+x2)/2, d="M "+x1+" "+y1+" C "+mx+" "+y1+", "+mx+" "+y2+", "+x2+" "+y2;
-    var live=cls.indexOf("live")>-1;
+  function curve(x1,y1,x2,y2,cls,id,bright){
+    var mx=(x1+x2)/2,d="M "+x1+" "+y1+" C "+mx+" "+y1+", "+mx+" "+y2+", "+x2+" "+y2;
+    var col=cls.indexOf("skim")>-1?"var(--skim)":cls.indexOf("test")>-1?"var(--test)":"var(--live)";
     var p='<path id="p-'+id+'" class="'+cls+'" d="'+d+'"/>';
-    // every join shows a travelling pulse — bright/fast when live, dim/slow when idle
-    p+='<circle r="'+(live?3.8:2.2)+'" class="pulse'+(live?'':' dim')+'">'+
-       '<animateMotion dur="'+(live?1.5:3.4)+'s" repeatCount="indefinite">'+
-       '<mpath href="#p-'+id+'"/></animateMotion></circle>';
+    p+='<circle r="'+(bright?3.8:2.2)+'" class="pulse'+(bright?'':' dim')+'" fill="'+(bright?col:"var(--muted)")+'">'+
+       '<animateMotion dur="'+(bright?1.5:3.4)+'s" repeatCount="indefinite"><mpath href="#p-'+id+'"/></animateMotion></circle>';
     return p;
   }
 
@@ -466,17 +382,12 @@
       getJSON("/names?"+cb()),
       getJSON("/trades?"+cb())
     ]).then(function(res){
-      var skim=res[0].__err?{groups:[]}:res[0];
-      var master=res[1].__err?{groups:[]}:res[1];
-      var relay=parseRelay(res[2]);
-      var names=res[3].__err?{groups:{}}:res[3];
-      var trades=res[4].__err?{groups:{}}:res[4];
-      render(skim,master,relay,names,trades);
-    }).catch(function(){ $("updated").textContent="fetch error — retrying"; });
+      render(res[0].__err?{groups:[]}:res[0], res[1].__err?{groups:[]}:res[1], parseRelay(res[2]),
+             res[3].__err?{groups:{}}:res[3], res[4].__err?{groups:{}}:res[4]);
+    }).catch(function(){$("updated").textContent="fetch error — retrying";});
   }
-
-  window.addEventListener("resize",function(){ drawCables(lastUsers,true); });
-  tick(); setInterval(tick,REFRESH);
+  window.addEventListener("resize",function(){drawCables(lastUsers,lastRelay);});
+  tick();setInterval(tick,REFRESH);
 })();
 </script>
 </body>
