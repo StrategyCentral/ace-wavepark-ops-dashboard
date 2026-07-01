@@ -86,17 +86,29 @@ const AGG_SQL =
   "round(coalesce(sum(e.pnl),0)) as pnl " +
   "from bot_events e left join bot_status s on s.license_key=e.license_key and s.hardware_id=e.hardware_id " +
   "where e.occurred_at >= now() - interval '24 hours' group by 1,2";
+// last_result/last_age = the last COMPLETED trade (exit). open_now = the newest event is an entry
+// AND it's recent (<45 min) — otherwise a missing exit-telemetry leaves a stale entry that would
+// wrongly read "in a trade now" for hours. These strategies close within minutes, so >45 min open
+// = a dropped exit event, not a live position.
 const LAST_SQL =
+  "with lastev as (" +
+  "select distinct on (license_key) license_key, event_type as t, " +
+  "floor(extract(epoch from now()-occurred_at)/60)::int as age_min " +
+  "from bot_events order by license_key, occurred_at desc), " +
+  "lastexit as (" +
   "select distinct on (license_key) license_key, " +
-  "(case when event_type='exit' then (case when coalesce(pnl,0)>=0 then 'win' else 'loss' end) else 'open' end) as last_result, " +
-  "floor(extract(epoch from now()-occurred_at)/60)::int as last_age_min " +
-  "from bot_events order by license_key, occurred_at desc";
+  "(case when coalesce(pnl,0)>=0 then 'win' else 'loss' end) as result, " +
+  "floor(extract(epoch from now()-occurred_at)/60)::int as age_min " +
+  "from bot_events where event_type='exit' order by license_key, occurred_at desc) " +
+  "select le.license_key, lx.result as last_result, lx.age_min as last_age_min, " +
+  "(le.t='entry' and le.age_min < 45) as open_now " +
+  "from lastev le left join lastexit lx using(license_key)";
 const tradesCache = cached(60000);
 async function buildTrades() {
   if (!HUB_TOKEN) return { groups: {}, count: 0, source: "no HUB_MGMT_TOKEN set" };
   const [agg, last] = await Promise.all([hubQuery(AGG_SQL), hubQuery(LAST_SQL)]);
   const byLic = {};
-  const rec = (k) => (byLic[k] = byLic[k] || { byStrat: {}, strategy: null, lastResult: null, lastAgeMin: null });
+  const rec = (k) => (byLic[k] = byLic[k] || { byStrat: {}, strategy: null, lastResult: null, lastAgeMin: null, openNow: false });
   (agg || []).forEach((a) => {
     if (!a.license_key) return;
     const strat = a.strat && a.strat !== "?" ? a.strat : "Other";
@@ -107,6 +119,7 @@ async function buildTrades() {
     const r = rec(l.license_key);
     r.lastResult = l.last_result || null;
     r.lastAgeMin = l.last_age_min != null ? Number(l.last_age_min) : null;
+    r.openNow = l.open_now === true || l.open_now === "true";
   });
   const groups = {};
   Object.keys(byLic).forEach((k) => {

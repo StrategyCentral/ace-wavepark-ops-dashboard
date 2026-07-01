@@ -331,10 +331,9 @@
 
     // PUBLIC-SAFE last outcome — win/loss + coarse age ONLY. No price, direction, or exact time.
     var lastHtml="";
-    if(r.trade&&r.trade.lastResult){
-      var lr=r.trade.lastResult;
-      if(lr==="open"){ lastHtml='<span class="took">in a trade now</span>'; }
-      else { lastHtml='<span class="took '+(lr==="win"?"win":"loss")+'">last: '+lr+' · '+fmtAgoMin(r.trade.lastAgeMin)+'</span>'; }
+    if(r.trade){
+      if(r.trade.openNow){ lastHtml='<span class="took">in a trade now</span>'; }
+      else if(r.trade.lastResult){ lastHtml='<span class="took '+(r.trade.lastResult==="win"?"win":"loss")+'">last: '+r.trade.lastResult+' · '+fmtAgoMin(r.trade.lastAgeMin)+'</span>'; }
     }
 
     // per-strategy 24h P&L chip(s) — aggregate proof only (trades / wins / net PnL)
