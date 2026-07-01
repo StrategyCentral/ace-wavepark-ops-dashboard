@@ -229,7 +229,8 @@
 
   function feedAgg(relay,prefix){var msgs=0,last=null,children=0;
     (relay.groups||[]).forEach(function(g){if(g.group&&g.group.indexOf(prefix+"-")===0){
-      msgs+=(g.messagesToday||0);children+=(g.children||0);
+      msgs=Math.max(msgs,g.messagesToday||0);  // a signal is broadcast to every group -> count = MAX, not sum
+      children+=(g.children||0);
       if(g.lastMessageAt&&(!last||age(g.lastMessageAt)<age(last)))last=g.lastMessageAt;}});
     return {msgs:msgs,last:last,children:children};}
 
@@ -242,12 +243,11 @@
   function stratClass(s){return s==="SKIMBOARD"?"skim":s==="MASTERTESTER"?"test":"";}
 
   function updateStrat(key,strat,nodeId,relayFeed){
-    var s=SIGNALS[strat]||null;
-    var today=s?s.today:relayFeed.msgs;
-    var lastMs=s?s.lastMs:(relayFeed.last?new Date(relayFeed.last).getTime():null);
-    var lhr=s?s.lastHr:0;
-    $(key+"-msgs").textContent=(today!=null?today:"—");
-    $(key+"-sub").textContent="signals sent today · "+lhr+" in last hr · last "+fmtAgoMs(lastMs);
+    // counts come straight from the relay (accurate source of signals SENT). feed.msgs = MAX
+    // messagesToday across the strategy's groups (a signal is broadcast to every group, not summed).
+    var lastMs=relayFeed.last?new Date(relayFeed.last).getTime():null;
+    $(key+"-msgs").textContent=(relayFeed.msgs!=null?relayFeed.msgs:"—");
+    $(key+"-sub").textContent="signals sent today · last "+fmtAgo(relayFeed.last);
     $(nodeId).classList.toggle("hot", !!(lastMs&&(Date.now()-lastMs)<HOT_MS));
     // new signal since last refresh -> fire a bulge down the hose
     if(lastMs&&prevSig[strat]&&lastMs>prevSig[strat]) fireBulge(strat);
@@ -264,10 +264,9 @@
       '<div class="row"><span>uptime</span><b>'+fmtDur(relay.uptime)+'</b></div>';
   }
 
-  function render(skim,master,relay,names,trades,signals){
+  function render(skim,master,relay,names,trades){
     NAMES=(names&&names.groups)?names.groups:{};
     TRADES=(trades&&trades.groups)?trades.groups:{};
-    SIGNALS=(signals&&signals.strategies)?signals.strategies:{};
     lastRelay=relay;
 
     // relay pill
@@ -450,13 +449,12 @@
     Promise.all([
       getJSON(LIC+"/api/groups?strategy=SKIMBOARD&"+cb()),
       getJSON(LIC+"/api/groups?strategy=MASTERTESTER&"+cb()),
-      getJSON(RELAY+"/stats?"+cb()),
+      getJSON("/relaystats?"+cb()),
       getJSON("/names?"+cb()),
-      getJSON("/trades?"+cb()),
-      getJSON("/signals?"+cb())
+      getJSON("/trades?"+cb())
     ]).then(function(res){
       render(res[0].__err?{groups:[]}:res[0], res[1].__err?{groups:[]}:res[1], parseRelay(res[2]),
-             res[3].__err?{groups:{}}:res[3], res[4].__err?{groups:{}}:res[4], res[5].__err?{strategies:{}}:res[5]);
+             res[3].__err?{groups:{}}:res[3], res[4].__err?{groups:{}}:res[4]);
     }).catch(function(){$("updated").textContent="fetch error — retrying";});
   }
   window.addEventListener("resize",function(){drawCables(lastUsers,lastRelay);});

@@ -159,7 +159,23 @@ app.get("/signals", async (_req, res) => {
   catch (e) { res.json({ strategies: {}, source: "error: " + e.message }); }
 });
 
-// Static dashboard (the page also calls the licensing + relay APIs directly).
+// ── /relaystats  (proxy the relay's /stats) ──────────────────────────────────
+// The relay only sends CORS Access-Control-Allow-Origin: https://acetradingbots.com, so the
+// browser CANNOT fetch it directly from this dashboard's origin (it shows "relay down" even
+// though the relay is healthy). We fetch it server-side (no CORS) and hand it back same-origin.
+const RELAY_STATS_URL = process.env.RELAY_STATS_URL || "https://ace-relay-production.up.railway.app/stats";
+app.get("/relaystats", async (_req, res) => {
+  res.set("Cache-Control", "no-store");
+  try {
+    const r = await fetch(RELAY_STATS_URL, { signal: AbortSignal.timeout(8000) });
+    if (!r.ok) return res.status(502).json({ __down: true, status: r.status });
+    res.json(await r.json());
+  } catch (e) {
+    res.status(502).json({ __down: true, error: e.message });
+  }
+});
+
+// Static dashboard (the page also calls the licensing API directly).
 app.use(express.static(path.join(__dirname, "public"), {
   etag: false,
   setHeaders(res) { res.setHeader("Cache-Control", "no-store, max-age=0"); },
