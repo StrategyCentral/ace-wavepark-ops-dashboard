@@ -74,17 +74,11 @@ app.get("/names", async (_req, res) => {
   catch (e) { res.json({ groups: {}, count: 0, source: "error: " + e.message }); }
 });
 
-// ── /trades  (real fills from Hub bot_events) ─────────────────────────────────
-// Each trade is tagged with its STRATEGY by joining bot_status on (license, hardware) — bot_events
-// has no strategy column of its own. Times are formatted to US Eastern (handles EST/EDT) server-side.
-const RECENT_SQL =
-  "select t.license_key, t.strat, t.event_type, t.action, t.price, t.pnl, t.detail, t.est from (" +
-  "select e.license_key, s.strategy as strat, e.event_type, e.action, e.price, e.pnl, e.detail, " +
-  "to_char(e.occurred_at at time zone 'America/New_York','Mon DD, HH12:MI AM') as est, e.occurred_at, " +
-  "row_number() over (partition by e.license_key order by e.occurred_at desc) rn " +
-  "from bot_events e left join bot_status s on s.license_key=e.license_key and s.hardware_id=e.hardware_id" +
-  ") t where t.rn <= 12 order by t.license_key, t.occurred_at desc";
-
+// ── /trades  (PUBLIC-SAFE — aggregate performance ONLY) ───────────────────────
+// SECURITY (Kruges 2026-07-01): the response must NEVER contain entry/stop/target/exit PRICES,
+// trade DIRECTION, exact trade TIMES, or a per-trade list — that raw data lets anyone clone the
+// strategy straight from the browser Network tab. We return ONLY aggregate proof: 24h
+// trades/wins/PnL per strategy + a coarse last-outcome (win/loss + age in whole minutes).
 const AGG_SQL =
   "select e.license_key, coalesce(s.strategy,'?') as strat, " +
   "count(*) filter (where e.event_type='exit') as trades, " +
@@ -92,32 +86,32 @@ const AGG_SQL =
   "round(coalesce(sum(e.pnl),0)) as pnl " +
   "from bot_events e left join bot_status s on s.license_key=e.license_key and s.hardware_id=e.hardware_id " +
   "where e.occurred_at >= now() - interval '24 hours' group by 1,2";
-
+const LAST_SQL =
+  "select distinct on (license_key) license_key, " +
+  "(case when event_type='exit' then (case when coalesce(pnl,0)>=0 then 'win' else 'loss' end) else 'open' end) as last_result, " +
+  "floor(extract(epoch from now()-occurred_at)/60)::int as last_age_min " +
+  "from bot_events order by license_key, occurred_at desc";
 const tradesCache = cached(60000);
 async function buildTrades() {
   if (!HUB_TOKEN) return { groups: {}, count: 0, source: "no HUB_MGMT_TOKEN set" };
-  const [recent, agg] = await Promise.all([hubQuery(RECENT_SQL), hubQuery(AGG_SQL)]);
+  const [agg, last] = await Promise.all([hubQuery(AGG_SQL), hubQuery(LAST_SQL)]);
   const byLic = {};
-  const rec = (k) => (byLic[k] = byLic[k] || { recent: [], byStrat: {}, strategy: null, last: null });
-  (recent || []).forEach((r) => {
-    if (!r.license_key) return;
-    rec(r.license_key).recent.push({
-      type: r.event_type, action: r.action,
-      price: r.price != null ? Number(r.price) : null,
-      pnl: r.pnl != null ? Number(r.pnl) : null,
-      est: r.est, strat: r.strat, detail: r.detail,
-    });
-  });
+  const rec = (k) => (byLic[k] = byLic[k] || { byStrat: {}, strategy: null, lastResult: null, lastAgeMin: null });
   (agg || []).forEach((a) => {
     if (!a.license_key) return;
     const strat = a.strat && a.strat !== "?" ? a.strat : "Other";
     rec(a.license_key).byStrat[strat] = { trades: Number(a.trades) || 0, wins: Number(a.wins) || 0, pnl: Number(a.pnl) || 0 };
   });
+  (last || []).forEach((l) => {
+    if (!l.license_key) return;
+    const r = rec(l.license_key);
+    r.lastResult = l.last_result || null;
+    r.lastAgeMin = l.last_age_min != null ? Number(l.last_age_min) : null;
+  });
   const groups = {};
   Object.keys(byLic).forEach((k) => {
     const r = byLic[k];
-    r.last = r.recent[0] || null;
-    r.strategy = (r.last && r.last.strat) || Object.keys(r.byStrat)[0] || null;
+    r.strategy = Object.keys(r.byStrat)[0] || null;
     bothGroups(k).forEach((g) => (groups[g] = r));
   });
   return { groups, count: Object.keys(groups).length, source: "hub" };
@@ -126,37 +120,6 @@ app.get("/trades", async (_req, res) => {
   res.set("Cache-Control", "no-store");
   try { res.json(await tradesCache(buildTrades)); }
   catch (e) { res.json({ groups: {}, count: 0, source: "error: " + e.message }); }
-});
-
-// ── /signals  (signals SENT per strategy — Hub-derived so it works even if relay /stats is down) ──
-// A "signal" = one distinct entry-minute across that strategy's subscribers (all children enter
-// together when the master fires). MASTERTESTER fires ~every 2 min.
-const SIGNALS_SQL =
-  "select coalesce(s.strategy,'?') as strat, " +
-  "count(distinct date_trunc('minute', e.occurred_at)) filter (where e.occurred_at >= now()-interval '24 hours') as today, " +
-  "count(distinct date_trunc('minute', e.occurred_at)) filter (where e.occurred_at >= now()-interval '1 hour') as last_hr, " +
-  "to_char(max(e.occurred_at) at time zone 'America/New_York','Mon DD, HH12:MI AM') as last_est, " +
-  "extract(epoch from max(e.occurred_at)) as last_epoch " +
-  "from bot_events e left join bot_status s on s.license_key=e.license_key and s.hardware_id=e.hardware_id " +
-  "where e.event_type='entry' group by 1";
-const signalsCache = cached(15000);
-async function buildSignals() {
-  if (!HUB_TOKEN) return { strategies: {}, source: "no HUB_MGMT_TOKEN set" };
-  const rows = await hubQuery(SIGNALS_SQL);
-  const strategies = {};
-  (rows || []).forEach((r) => {
-    const k = r.strat && r.strat !== "?" ? r.strat : "Other";
-    strategies[k] = {
-      today: Number(r.today) || 0, lastHr: Number(r.last_hr) || 0,
-      lastEst: r.last_est || null, lastMs: r.last_epoch ? Math.round(Number(r.last_epoch) * 1000) : null,
-    };
-  });
-  return { strategies, source: "hub" };
-}
-app.get("/signals", async (_req, res) => {
-  res.set("Cache-Control", "no-store");
-  try { res.json(await signalsCache(buildSignals)); }
-  catch (e) { res.json({ strategies: {}, source: "error: " + e.message }); }
 });
 
 // ── /relaystats  (proxy the relay's /stats) ──────────────────────────────────
@@ -169,7 +132,20 @@ app.get("/relaystats", async (_req, res) => {
   try {
     const r = await fetch(RELAY_STATS_URL, { signal: AbortSignal.timeout(8000) });
     if (!r.ok) return res.status(502).json({ __down: true, status: r.status });
-    res.json(await r.json());
+    const j = await r.json();
+    // SECURITY: strip the ABSOLUTE lastMessageAt (a signal's exact wall-clock fire time is IP).
+    // Expose only counts + a coarse age (rounded to 30s) — enough for the "hot"/animation, not
+    // enough to pin the strategy's signal clock.
+    const now = Date.now();
+    const groups = (j.groups || []).map((g) => {
+      let ageSec = null;
+      if (g.lastMessageAt) {
+        const a = Math.max(0, Math.round((now - new Date(g.lastMessageAt).getTime()) / 1000));
+        ageSec = Math.round(a / 30) * 30;
+      }
+      return { group: g.group, children: g.children || 0, masters: g.masters || 0, messagesToday: g.messagesToday || 0, ageSec };
+    });
+    res.json({ uptimeSeconds: j.uptimeSeconds, groups });
   } catch (e) {
     res.status(502).json({ __down: true, error: e.message });
   }

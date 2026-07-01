@@ -227,31 +227,31 @@
       if(g&&typeof g.children==="number")tc+=g.children;if(g&&typeof g.masters==="number")tm+=g.masters;});
     out.totChildren=tc;out.totMasters=tm;out.hasGroups=groups.length>0;out.groups=groups;out.reason="online";return out;}
 
-  function feedAgg(relay,prefix){var msgs=0,last=null,children=0;
+  function feedAgg(relay,prefix){var msgs=0,ageSec=null,children=0;
     (relay.groups||[]).forEach(function(g){if(g.group&&g.group.indexOf(prefix+"-")===0){
       msgs=Math.max(msgs,g.messagesToday||0);  // a signal is broadcast to every group -> count = MAX, not sum
       children+=(g.children||0);
-      if(g.lastMessageAt&&(!last||age(g.lastMessageAt)<age(last)))last=g.lastMessageAt;}});
-    return {msgs:msgs,last:last,children:children};}
+      if(g.ageSec!=null&&(ageSec==null||g.ageSec<ageSec))ageSec=g.ageSec;}});
+    return {msgs:msgs,ageSec:ageSec,children:children};}
 
-  var lastUsers=[],NAMES={},TRADES={},lastRelay={groups:[]},SIGNALS={},prevSig={},bulgeSeq=0;
+  var lastUsers=[],NAMES={},TRADES={},lastRelay={groups:[]},prevMsgs={},bulgeSeq=0;
 
   function fmtDur(sec){sec=Math.floor(sec||0);var d=Math.floor(sec/86400),h=Math.floor((sec%86400)/3600),m=Math.floor((sec%3600)/60);
     if(d)return d+"d "+h+"h";if(h)return h+"h "+m+"m";return m+"m";}
-  function fmtAgoMs(ms){return ms?fmtAgo(new Date(ms).toISOString()):"—";}
+  function fmtAgoSec(sec){if(sec==null)return "—";if(sec<60)return sec+"s ago";if(sec<3600)return Math.floor(sec/60)+"m ago";if(sec<86400)return Math.floor(sec/3600)+"h ago";return Math.floor(sec/86400)+"d ago";}
+  function fmtAgoMin(min){if(min==null)return "—";if(min<1)return "just now";if(min<60)return min+"m ago";if(min<1440)return Math.floor(min/60)+"h ago";return Math.floor(min/1440)+"d ago";}
 
   function stratClass(s){return s==="SKIMBOARD"?"skim":s==="MASTERTESTER"?"test":"";}
 
   function updateStrat(key,strat,nodeId,relayFeed){
-    // counts come straight from the relay (accurate source of signals SENT). feed.msgs = MAX
-    // messagesToday across the strategy's groups (a signal is broadcast to every group, not summed).
-    var lastMs=relayFeed.last?new Date(relayFeed.last).getTime():null;
+    // signals SENT count from the relay (MAX messagesToday across the strategy's groups). We only
+    // expose a coarse age + count — never absolute signal times or prices (strategy stays private).
     $(key+"-msgs").textContent=(relayFeed.msgs!=null?relayFeed.msgs:"—");
-    $(key+"-sub").textContent="signals sent today · last "+fmtAgo(relayFeed.last);
-    $(nodeId).classList.toggle("hot", !!(lastMs&&(Date.now()-lastMs)<HOT_MS));
-    // new signal since last refresh -> fire a bulge down the hose
-    if(lastMs&&prevSig[strat]&&lastMs>prevSig[strat]) fireBulge(strat);
-    if(lastMs) prevSig[strat]=lastMs;
+    $(key+"-sub").textContent="signals sent today · last "+fmtAgoSec(relayFeed.ageSec);
+    $(nodeId).classList.toggle("hot", !!(relayFeed.ageSec!=null&&relayFeed.ageSec<HOT_MS/1000));
+    // a new signal = the day's count ticked up since last refresh -> fire a bulge down the hose
+    if(relayFeed.msgs!=null&&prevMsgs[strat]!=null&&relayFeed.msgs>prevMsgs[strat]) fireBulge(strat);
+    if(relayFeed.msgs!=null) prevMsgs[strat]=relayFeed.msgs;
   }
   function updateRelayStats(relay){
     var host=$("relayStats"); if(!host) return;
@@ -298,23 +298,19 @@
       var rs=relay.byGroup[u.skimGroup]||null, rm=relay.byGroup[u.masterGroup]||null;
       var skimChild=!!(rs&&rs.children>0), testChild=!!(rm&&rm.children>0);
       var childConnected=skimChild||testChild;
-      var skimLast=rs?rs.lastMessageAt:null, testLast=rm?rm.lastMessageAt:null;
-      var lastSignal=null,lastFeed=null;
-      if(skimLast&&(!lastSignal||age(skimLast)<age(lastSignal))){lastSignal=skimLast;lastFeed="SKIMBOARD";}
-      if(testLast&&(!lastSignal||age(testLast)<age(lastSignal))){lastSignal=testLast;lastFeed="MASTERTESTER";}
       var tr=TRADES[u.skimGroup]||TRADES[u.masterGroup]||null;
       var a=age(u.lastSeen);
-      var state=childConnected?"live":(age(lastSignal)<STALE_MS||a<DEAD_MS?"stale":"dead");
+      var state=childConnected?"live":(a<DEAD_MS?"stale":"dead");
       if(state==="live")liveCount++;
       var name=NAMES[u.skimGroup]||NAMES[u.masterGroup]||null;
       var gidShort=(u.skimGroup||u.masterGroup||"").replace(/^skimboard-|^mastertester-/,"").slice(0,8);
       var fallback=(u.license&&u.license!=="?")?u.license.replace(/\.\.\.$/,""):("user-"+gidShort);
-      var strategy=(tr&&tr.strategy)|| (skimChild?"SKIMBOARD":testChild?"MASTERTESTER":null);
+      var strategy=(tr&&tr.strategy)||(skimChild?"SKIMBOARD":testChild?"MASTERTESTER":null);
       return {license:u.license,name:name,fallback:fallback,gidShort:gidShort,skimGroup:u.skimGroup,masterGroup:u.masterGroup,
-        skimChild:skimChild,testChild:testChild,childConnected:childConnected,lastSignal:lastSignal,lastFeed:lastFeed,
-        trade:tr,strategy:strategy,state:state};
+        skimChild:skimChild,testChild:testChild,childConnected:childConnected,
+        trade:tr,strategy:strategy,state:state,lastSeen:u.lastSeen};
     });
-    rows.sort(function(a,b){var d=(b.state==="live")-(a.state==="live");if(d)return d;return age(a.lastSignal)-age(b.lastSignal);});
+    rows.sort(function(a,b){var d=(b.state==="live")-(a.state==="live");if(d)return d;return age(a.lastSeen)-age(b.lastSeen);});
     lastUsers=rows;
 
     $("p-users").innerHTML="Users <b>"+rows.length+"</b>";
@@ -333,20 +329,15 @@
     var nameCls=r.name?"":' style="color:var(--muted);font-weight:600"';
     var stratBadge=r.strategy?'<span class="strat '+stratClass(r.strategy)+'">'+esc(r.strategy)+'</span>':'';
 
-    // last trade line (real fill w/ ET + which strategy)
+    // PUBLIC-SAFE last outcome — win/loss + coarse age ONLY. No price, direction, or exact time.
     var lastHtml="";
-    if(r.trade&&r.trade.last){
-      var t=r.trade.last;
-      var isExit=t.type==="exit";
-      var lab=isExit?(/target/i.test(t.action||"")?"TP":/stop/i.test(t.action||"")?"SL":"exit"):(t.action||"").toUpperCase();
-      var cls=isExit?(t.pnl>=0?"win":"loss"):"";
-      var head=isExit?(lab+(t.pnl!=null?" "+money(t.pnl):"")):(lab+(t.price!=null?" @ "+t.price:""));
-      lastHtml='<span class="took '+cls+'">'+esc(head)+' · '+esc(t.est||"—")+' · '+esc(t.strat||"?")+'</span>';
-    } else if(r.lastFeed){
-      lastHtml='<span class="took">last signal: '+r.lastFeed+' · '+estOf(r.lastSignal)+'</span>';
+    if(r.trade&&r.trade.lastResult){
+      var lr=r.trade.lastResult;
+      if(lr==="open"){ lastHtml='<span class="took">in a trade now</span>'; }
+      else { lastHtml='<span class="took '+(lr==="win"?"win":"loss")+'">last: '+lr+' · '+fmtAgoMin(r.trade.lastAgeMin)+'</span>'; }
     }
 
-    // per-strategy 24h P&L chip(s) — label "24h" when single strat (strat shown in badge), else the name
+    // per-strategy 24h P&L chip(s) — aggregate proof only (trades / wins / net PnL)
     var pnlHtml="";
     if(r.trade&&r.trade.byStrat){
       var strats=Object.keys(r.trade.byStrat).filter(function(s){return r.trade.byStrat[s].trades>0;});
@@ -357,25 +348,11 @@
       });
     }
 
-    // recent RESULTS — completed trades only (exits w/ P&L), tidy
-    var recentHtml="";
-    if(r.trade&&r.trade.recent&&r.trade.recent.length){
-      var exits=r.trade.recent.filter(function(t){return t.type==="exit";}).slice(0,4);
-      if(exits.length){
-        recentHtml='<div class="recent"><span class="rlab">last '+exits.length+'</span>'+exits.map(function(t){
-          var tm=(t.est||"").replace(/^[A-Za-z]{3} \d+, /,"").replace(" ET","");
-          var g=t.pnl>=0;
-          return '<span class="rt">'+esc(tm)+' <span class="'+(g?"g":"r")+'">'+(t.pnl!=null?money(t.pnl):(/target/i.test(t.action||"")?"TP":"SL"))+'</span></span>';
-        }).join("")+'</div>';
-      }
-    }
-
     return ''+
     '<div class="urow '+r.state+'" id="urow-'+i+'">'+
       '<div>'+
         '<div class="uname"><span'+nameCls+'>'+display+'</span>'+stratBadge+(r.name?'':'<span class="gid">'+esc(r.gidShort)+'</span>')+'</div>'+
         '<div class="umeta">'+lastHtml+pnlHtml+'</div>'+
-        recentHtml+
       '</div>'+
       '<div class="uflags"><span class="flag '+(r.childConnected?"yes":"no")+'"><span class="d"></span>'+(r.childConnected?"connected":"offline")+'</span></div>'+
     '</div>';
