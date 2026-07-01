@@ -128,6 +128,37 @@ app.get("/trades", async (_req, res) => {
   catch (e) { res.json({ groups: {}, count: 0, source: "error: " + e.message }); }
 });
 
+// ── /signals  (signals SENT per strategy — Hub-derived so it works even if relay /stats is down) ──
+// A "signal" = one distinct entry-minute across that strategy's subscribers (all children enter
+// together when the master fires). MASTERTESTER fires ~every 2 min.
+const SIGNALS_SQL =
+  "select coalesce(s.strategy,'?') as strat, " +
+  "count(distinct date_trunc('minute', e.occurred_at)) filter (where e.occurred_at >= now()-interval '24 hours') as today, " +
+  "count(distinct date_trunc('minute', e.occurred_at)) filter (where e.occurred_at >= now()-interval '1 hour') as last_hr, " +
+  "to_char(max(e.occurred_at) at time zone 'America/New_York','Mon DD, HH12:MI AM') as last_est, " +
+  "extract(epoch from max(e.occurred_at)) as last_epoch " +
+  "from bot_events e left join bot_status s on s.license_key=e.license_key and s.hardware_id=e.hardware_id " +
+  "where e.event_type='entry' group by 1";
+const signalsCache = cached(15000);
+async function buildSignals() {
+  if (!HUB_TOKEN) return { strategies: {}, source: "no HUB_MGMT_TOKEN set" };
+  const rows = await hubQuery(SIGNALS_SQL);
+  const strategies = {};
+  (rows || []).forEach((r) => {
+    const k = r.strat && r.strat !== "?" ? r.strat : "Other";
+    strategies[k] = {
+      today: Number(r.today) || 0, lastHr: Number(r.last_hr) || 0,
+      lastEst: r.last_est || null, lastMs: r.last_epoch ? Math.round(Number(r.last_epoch) * 1000) : null,
+    };
+  });
+  return { strategies, source: "hub" };
+}
+app.get("/signals", async (_req, res) => {
+  res.set("Cache-Control", "no-store");
+  try { res.json(await signalsCache(buildSignals)); }
+  catch (e) { res.json({ strategies: {}, source: "error: " + e.message }); }
+});
+
 // Static dashboard (the page also calls the licensing + relay APIs directly).
 app.use(express.static(path.join(__dirname, "public"), {
   etag: false,

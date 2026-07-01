@@ -107,6 +107,11 @@
   .flag.no .d{background:var(--bad)}
 
   #cables{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0}
+  #bulges{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:2}
+  .node-relay.wobble{animation:wobble .65s ease}
+  .rstats{margin-top:12px;border-top:1px solid var(--line);padding-top:10px;display:flex;flex-direction:column;gap:5px;font-size:11px;color:var(--muted)}
+  .rstats .row{display:flex;justify-content:space-between;gap:12px}
+  .rstats b{color:var(--text);font-weight:600}
   .flow > *{position:relative;z-index:1}
   .cable{fill:none;stroke:var(--dead);stroke-width:2;opacity:.55;stroke-dasharray:7 7;animation:flow 2.6s linear infinite}
   .cable.skim{stroke:var(--skim);opacity:.9;filter:drop-shadow(0 0 4px var(--skim-glow))}
@@ -124,6 +129,7 @@
   @keyframes flow{to{stroke-dashoffset:-26}}
   @keyframes beat{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.5);opacity:.5}}
   @keyframes slide{0%{transform:translateX(-120%)}100%{transform:translateX(340%)}}
+  @keyframes wobble{0%,100%{transform:scale(1)}16%{transform:scale(1.10) rotate(-1.6deg)}34%{transform:scale(.95) rotate(1.6deg)}52%{transform:scale(1.06) rotate(-.9deg)}72%{transform:scale(.99) rotate(.5deg)}}
   @media(max-width:1000px){.flow{grid-template-columns:1fr}#cables{display:none}.node-relay{position:static}.master-col{margin-bottom:16px}}
 </style>
 </head>
@@ -141,6 +147,7 @@
 <div class="wrap">
   <div class="flow" id="flow">
     <svg id="cables" preserveAspectRatio="none"></svg>
+    <svg id="bulges" preserveAspectRatio="none"></svg>
 
     <!-- TWO STRATEGY MASTERS -->
     <div class="master-col">
@@ -171,6 +178,7 @@
         <h3>ACE Relay</h3>
         <div class="sub">fan-out broker</div>
         <div class="relay-state" id="relayState">checking…</div>
+        <div class="rstats" id="relayStats"></div>
       </div>
     </div>
 
@@ -214,7 +222,7 @@
     var out={up:false,byGroup:{},hasGroups:false,groups:[]};
     if(!raw||raw.__err){out.reason=raw&&raw.status===404?"no /stats":"unreachable";return out;}
     if(raw.__text!==undefined){out.up=/ok/i.test(raw.__text);out.reason="online";return out;}
-    out.up=true;var groups=Array.isArray(raw.groups)?raw.groups:[];
+    out.up=true;out.uptime=(raw.uptimeSeconds!=null?raw.uptimeSeconds:(raw.uptime!=null?raw.uptime:0));var groups=Array.isArray(raw.groups)?raw.groups:[];
     var tc=0,tm=0;groups.forEach(function(g){if(g&&g.group)out.byGroup[g.group]=g;
       if(g&&typeof g.children==="number")tc+=g.children;if(g&&typeof g.masters==="number")tm+=g.masters;});
     out.totChildren=tc;out.totMasters=tm;out.hasGroups=groups.length>0;out.groups=groups;out.reason="online";return out;}
@@ -225,13 +233,41 @@
       if(g.lastMessageAt&&(!last||age(g.lastMessageAt)<age(last)))last=g.lastMessageAt;}});
     return {msgs:msgs,last:last,children:children};}
 
-  var lastUsers=[],NAMES={},TRADES={},lastRelay={groups:[]};
+  var lastUsers=[],NAMES={},TRADES={},lastRelay={groups:[]},SIGNALS={},prevSig={},bulgeSeq=0;
+
+  function fmtDur(sec){sec=Math.floor(sec||0);var d=Math.floor(sec/86400),h=Math.floor((sec%86400)/3600),m=Math.floor((sec%3600)/60);
+    if(d)return d+"d "+h+"h";if(h)return h+"h "+m+"m";return m+"m";}
+  function fmtAgoMs(ms){return ms?fmtAgo(new Date(ms).toISOString()):"—";}
 
   function stratClass(s){return s==="SKIMBOARD"?"skim":s==="MASTERTESTER"?"test":"";}
 
-  function render(skim,master,relay,names,trades){
+  function updateStrat(key,strat,nodeId,relayFeed){
+    var s=SIGNALS[strat]||null;
+    var today=s?s.today:relayFeed.msgs;
+    var lastMs=s?s.lastMs:(relayFeed.last?new Date(relayFeed.last).getTime():null);
+    var lhr=s?s.lastHr:0;
+    $(key+"-msgs").textContent=(today!=null?today:"—");
+    $(key+"-sub").textContent="signals sent today · "+lhr+" in last hr · last "+fmtAgoMs(lastMs);
+    $(nodeId).classList.toggle("hot", !!(lastMs&&(Date.now()-lastMs)<HOT_MS));
+    // new signal since last refresh -> fire a bulge down the hose
+    if(lastMs&&prevSig[strat]&&lastMs>prevSig[strat]) fireBulge(strat);
+    if(lastMs) prevSig[strat]=lastMs;
+  }
+  function updateRelayStats(relay){
+    var host=$("relayStats"); if(!host) return;
+    if(!relay.up){ host.innerHTML='<div class="row" style="color:var(--bad)"><span>stats</span><b style="color:var(--bad)">offline</b></div>'; return; }
+    var msgs=(relay.groups||[]).reduce(function(a,g){return a+(g.messagesToday||0);},0);
+    host.innerHTML=
+      '<div class="row"><span>children live</span><b>'+(relay.totChildren||0)+'</b></div>'+
+      '<div class="row"><span>masters</span><b>'+(relay.totMasters||0)+'</b></div>'+
+      '<div class="row"><span>relayed today</span><b>'+msgs+'</b></div>'+
+      '<div class="row"><span>uptime</span><b>'+fmtDur(relay.uptime)+'</b></div>';
+  }
+
+  function render(skim,master,relay,names,trades,signals){
     NAMES=(names&&names.groups)?names.groups:{};
     TRADES=(trades&&trades.groups)?trades.groups:{};
+    SIGNALS=(signals&&signals.strategies)?signals.strategies:{};
     lastRelay=relay;
 
     // relay pill
@@ -243,12 +279,11 @@
     }else{$("p-relay").className="pill bad";$("p-relay").innerHTML="Relay <b>down</b>";
       $("relayState").textContent="relay stats unavailable";$("relayState").style.color="var(--bad)";$("relayNode").style.opacity=".55";}
 
-    // two master strategy nodes
+    // two master strategy nodes — signal counts from Hub /signals (robust to relay downtime)
     var fs=feedAgg(relay,"skimboard"), ft=feedAgg(relay,"mastertester");
-    $("skim-msgs").textContent=fs.msgs; $("skim-sub").textContent="signals today · last "+fmtAgo(fs.last);
-    $("test-msgs").textContent=ft.msgs; $("test-sub").textContent="signals today · last "+fmtAgo(ft.last);
-    $("masterSkim").classList.toggle("hot",age(fs.last)<HOT_MS);
-    $("masterTest").classList.toggle("hot",age(ft.last)<HOT_MS);
+    updateStrat("skim","SKIMBOARD","masterSkim",fs);
+    updateStrat("test","MASTERTESTER","masterTest",ft);
+    updateRelayStats(relay);
 
     // join users by masked license
     var byLic={};
@@ -352,6 +387,7 @@
     var svg=$("cables"),flow=$("flow");if(!svg||!flow)return;
     var fr=flow.getBoundingClientRect();var W=flow.clientWidth,H=flow.clientHeight;
     svg.setAttribute("viewBox","0 0 "+W+" "+H);svg.setAttribute("width",W);svg.setAttribute("height",H);
+    var bsvg=$("bulges");if(bsvg){bsvg.setAttribute("viewBox","0 0 "+W+" "+H);bsvg.setAttribute("width",W);bsvg.setAttribute("height",H);}
     var rB=$("relayNode").getBoundingClientRect();
     var rlx=rB.left-fr.left, rly=rB.top-fr.top+rB.height/2, rrx=rB.right-fr.left;
     var parts=[];
@@ -378,16 +414,49 @@
     return p;
   }
 
+  // ── signal "bulge" travelling the hose: master -> relay (wobble) -> fan out to users ──
+  function fireBulge(strat){
+    var svg=$("bulges"),flow=$("flow");if(!svg||!flow)return;
+    var fr=flow.getBoundingClientRect();
+    var mEl=$(strat==="SKIMBOARD"?"masterSkim":"masterTest"),rEl=$("relayNode");if(!mEl||!rEl)return;
+    var mB=mEl.getBoundingClientRect(),rB=rEl.getBoundingClientRect();
+    var col=strat==="SKIMBOARD"?"#2ee6a6":"#5ab0ff";
+    addBulge(svg, mB.right-fr.left, mB.top-fr.top+mB.height/2, rB.left-fr.left, rB.top-fr.top+rB.height/2, col, 850);
+    setTimeout(function(){
+      rEl.classList.remove("wobble"); void rEl.offsetWidth; rEl.classList.add("wobble");
+      setTimeout(function(){rEl.classList.remove("wobble");},700);
+      var rrx=rB.right-fr.left, rly=rB.top-fr.top+rB.height/2;
+      document.querySelectorAll(".urow").forEach(function(u){
+        var b=u.getBoundingClientRect();
+        addBulge(svg, rrx,rly, b.left-fr.left, b.top-fr.top+Math.min(b.height/2,40), "#2ee6a6", 780);
+      });
+    },820);
+  }
+  function addBulge(svg,x1,y1,x2,y2,col,dur){
+    var mx=(x1+x2)/2, d="M "+x1+" "+y1+" C "+mx+" "+y1+", "+mx+" "+y2+", "+x2+" "+y2;
+    var id="bg"+(bulgeSeq++);
+    var g=document.createElementNS("http://www.w3.org/2000/svg","g");
+    g.innerHTML='<path id="'+id+'" fill="none" stroke="none" d="'+d+'"/>'+
+      '<circle r="4" fill="'+col+'" style="filter:drop-shadow(0 0 10px '+col+')">'+
+      '<animateMotion begin="indefinite" dur="'+dur+'ms" fill="freeze"><mpath href="#'+id+'"/></animateMotion>'+
+      '<animate attributeName="r" begin="indefinite" values="3;9;4;9;3" dur="'+dur+'ms"/>'+
+      '<animate attributeName="opacity" begin="indefinite" values="0.2;1;1;0" dur="'+dur+'ms"/></circle>';
+    svg.appendChild(g);
+    try{ g.querySelectorAll("animateMotion,animate").forEach(function(a){a.beginElement();}); }catch(e){}
+    setTimeout(function(){try{svg.removeChild(g);}catch(e){}},dur+180);
+  }
+
   function tick(){
     Promise.all([
       getJSON(LIC+"/api/groups?strategy=SKIMBOARD&"+cb()),
       getJSON(LIC+"/api/groups?strategy=MASTERTESTER&"+cb()),
       getJSON(RELAY+"/stats?"+cb()),
       getJSON("/names?"+cb()),
-      getJSON("/trades?"+cb())
+      getJSON("/trades?"+cb()),
+      getJSON("/signals?"+cb())
     ]).then(function(res){
       render(res[0].__err?{groups:[]}:res[0], res[1].__err?{groups:[]}:res[1], parseRelay(res[2]),
-             res[3].__err?{groups:{}}:res[3], res[4].__err?{groups:{}}:res[4]);
+             res[3].__err?{groups:{}}:res[3], res[4].__err?{groups:{}}:res[4], res[5].__err?{strategies:{}}:res[5]);
     }).catch(function(){$("updated").textContent="fetch error — retrying";});
   }
   window.addEventListener("resize",function(){drawCables(lastUsers,lastRelay);});
